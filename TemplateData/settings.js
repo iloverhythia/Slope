@@ -1,9 +1,11 @@
 /*
- * Slope settings: a gear button that opens a track color changer.
+ * Slope settings: a gear button that opens a track color changer and a
+ * graphics quality choice, drawn in the game's own menu style.
  *
  * The game is a compiled Unity build, so its colors can't be edited directly.
  * Instead an SVG color matrix tints the game: the neon green becomes the chosen
  * color, while black, white and the red walls stay exactly as they were.
+ * Graphics quality is handled by quality.js (window.SlopeGraphics).
  */
 (function () {
   "use strict";
@@ -21,7 +23,27 @@
     { name: "Yellow", color: "#ffe81a" },
     { name: "White", color: "#ffffff" }
   ];
+  var GRAPHICS = [
+    { level: "low", name: "Low" },
+    { level: "high", name: "High" },
+    { level: "ultra", name: "Ultra" }
+  ];
 
+  // A 9x9 dot-matrix gear, drawn with the same round dots as the game's lettering.
+  // At 27px each dot lands on a whole 3px cell, so it stays crisp.
+  var GEAR_DOTS = [
+    "...###...",
+    ".#.###.#.",
+    ".#######.",
+    "###...###",
+    "###...###",
+    "###...###",
+    ".#######.",
+    ".#.###.#.",
+    "...###..."
+  ];
+
+  var graphics = window.SlopeGraphics;
   var state = loadState();
   var els = {};
   var rainbowFrame = 0;
@@ -29,14 +51,15 @@
   var lastFrameTime = 0;
 
   function loadState() {
-    var fallback = { color: CLASSIC, rainbow: false };
+    var result = { color: CLASSIC, rainbow: false, graphics: graphics ? graphics.getLevel() : "ultra" };
     try {
       var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       if (saved && /^#[0-9a-f]{6}$/i.test(saved.color)) {
-        return { color: saved.color.toLowerCase(), rainbow: !!saved.rainbow };
+        result.color = saved.color.toLowerCase();
+        result.rainbow = !!saved.rainbow;
       }
     } catch (e) {}
-    return fallback;
+    return result;
   }
 
   function saveState() {
@@ -94,8 +117,12 @@
     els.swatches.forEach(function (btn) {
       btn.setAttribute("aria-pressed", String(!state.rainbow && btn.getAttribute("data-color") === hex));
     });
+    els.graphics.forEach(function (btn) {
+      btn.setAttribute("aria-pressed", String(btn.getAttribute("data-graphics") === state.graphics));
+    });
     els.custom.value = hex;
-    els.rainbow.checked = state.rainbow;
+    els.rainbow.setAttribute("aria-pressed", String(state.rainbow));
+    els.rainbowState.textContent = state.rainbow ? "On" : "Off";
     els.name.textContent = state.rainbow ? "Rainbow" : presetName(hex);
     els.hex.textContent = state.rainbow ? "cycling" : hex.toUpperCase();
     if (state.rainbow) {
@@ -109,6 +136,13 @@
   function setColor(hex) {
     state.color = hex.toLowerCase();
     state.rainbow = false;
+    saveState();
+    render();
+  }
+
+  function setGraphics(level) {
+    state.graphics = level;
+    if (graphics) graphics.setLevel(level);
     saveState();
     render();
   }
@@ -139,7 +173,7 @@
   function openPanel() {
     els.panel.hidden = false;
     els.toggle.setAttribute("aria-expanded", "true");
-    var pressed = els.panel.querySelector('[aria-pressed="true"]');
+    var pressed = els.panel.querySelector('.slope-swatch[aria-pressed="true"]');
     (pressed || els.close).focus();
   }
 
@@ -154,9 +188,15 @@
     }
   }
 
-  var GEAR_TEETH = [0, 45, 90, 135, 180, 225, 270, 315].map(function (deg) {
-    return '<rect x="10.5" y="1" width="3" height="5" transform="rotate(' + deg + ' 12 12)"/>';
-  }).join("");
+  function gearSvg() {
+    var dots = "";
+    GEAR_DOTS.forEach(function (row, y) {
+      for (var x = 0; x < row.length; x++) {
+        if (row[x] === "#") dots += '<circle cx="' + (x + 0.5) + '" cy="' + (y + 0.5) + '" r="0.45"/>';
+      }
+    });
+    return '<svg viewBox="0 0 9 9" width="27" height="27" fill="currentColor" aria-hidden="true" focusable="false">' + dots + "</svg>";
+  }
 
   function build() {
     var root = document.createElement("div");
@@ -168,38 +208,41 @@
           '<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"/>' +
         "</filter>" +
       "</svg>" +
-      '<button type="button" class="slope-gear" aria-label="Settings" aria-expanded="false" aria-controls="slope-settings-panel">' +
-        '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">' +
-          '<g fill="currentColor">' + GEAR_TEETH + "</g>" +
-          '<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="3.5"/>' +
-        "</svg>" +
+      '<button type="button" class="slope-btn slope-gear" aria-label="Settings" aria-expanded="false" aria-controls="slope-settings-panel">' +
+        gearSvg() +
       "</button>" +
       '<div class="slope-panel" id="slope-settings-panel" role="dialog" aria-labelledby="slope-settings-title" hidden>' +
         '<div class="slope-panel-head">' +
           '<h2 class="slope-panel-title" id="slope-settings-title">Settings</h2>' +
-          '<button type="button" class="slope-close" aria-label="Close settings">' +
-            '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false">' +
-              '<path d="M1 1 11 11M11 1 1 11" stroke="currentColor" stroke-width="2.5" fill="none"/>' +
-            "</svg>" +
-          "</button>" +
+          '<button type="button" class="slope-btn slope-close" aria-label="Close settings">X</button>' +
         "</div>" +
         '<div class="slope-section" role="group" aria-labelledby="slope-color-label">' +
           '<p class="slope-label" id="slope-color-label">Track color</p>' +
           '<div class="slope-swatches">' +
             PRESETS.map(function (p) {
-              return '<button type="button" class="slope-swatch" data-color="' + p.color + '" style="--swatch:' + p.color +
+              return '<button type="button" class="slope-btn slope-swatch" data-color="' + p.color + '" style="--swatch:' + p.color +
                 '" aria-label="' + p.name + '" title="' + p.name + '"><span></span></button>';
             }).join("") +
           "</div>" +
           '<p class="slope-readout" aria-live="polite"><span class="slope-readout-name"></span><span class="slope-readout-hex"></span></p>' +
         "</div>" +
-        '<div class="slope-section slope-rows">' +
-          '<label class="slope-row" for="slope-custom-color"><span>Custom color</span>' +
-            '<input type="color" id="slope-custom-color" value="#00ff00"></label>' +
-          '<label class="slope-row" for="slope-rainbow"><span>Rainbow mode</span>' +
-            '<input type="checkbox" id="slope-rainbow" role="switch"></label>' +
+        '<label class="slope-btn slope-row" for="slope-custom-color">' +
+          "<span>Custom color</span>" +
+          '<span class="slope-chip"><input type="color" id="slope-custom-color" value="#00ff00"></span>' +
+        "</label>" +
+        '<button type="button" class="slope-btn slope-row" id="slope-rainbow" aria-pressed="false">' +
+          '<span>Rainbow</span><span class="slope-row-state">Off</span>' +
+        "</button>" +
+        '<div class="slope-section" role="group" aria-labelledby="slope-graphics-label">' +
+          '<p class="slope-label" id="slope-graphics-label">Graphics</p>' +
+          '<div class="slope-segments">' +
+            GRAPHICS.map(function (g) {
+              return '<button type="button" class="slope-btn" data-graphics="' + g.level + '" aria-pressed="false">' + g.name + "</button>";
+            }).join("") +
+          "</div>" +
+          '<p class="slope-hint">Use Low if the game stutters.</p>' +
         "</div>" +
-        '<button type="button" class="slope-reset">Reset to classic</button>' +
+        '<button type="button" class="slope-btn slope-reset">Reset color</button>' +
       "</div>";
     document.body.appendChild(root);
 
@@ -209,10 +252,14 @@
     els.panel = root.querySelector(".slope-panel");
     els.close = root.querySelector(".slope-close");
     els.swatches = Array.prototype.slice.call(root.querySelectorAll(".slope-swatch"));
+    els.graphics = Array.prototype.slice.call(root.querySelectorAll("[data-graphics]"));
     els.custom = root.querySelector("#slope-custom-color");
     els.rainbow = root.querySelector("#slope-rainbow");
+    els.rainbowState = root.querySelector(".slope-row-state");
     els.name = root.querySelector(".slope-readout-name");
     els.hex = root.querySelector(".slope-readout-hex");
+
+    if (!graphics) root.querySelector('[aria-labelledby="slope-graphics-label"]').hidden = true;
 
     els.toggle.addEventListener("click", function () {
       if (isOpen()) closePanel(false); else openPanel();
@@ -221,9 +268,12 @@
     els.swatches.forEach(function (btn) {
       btn.addEventListener("click", function () { setColor(btn.getAttribute("data-color")); });
     });
+    els.graphics.forEach(function (btn) {
+      btn.addEventListener("click", function () { setGraphics(btn.getAttribute("data-graphics")); });
+    });
     els.custom.addEventListener("input", function () { setColor(els.custom.value); });
-    els.rainbow.addEventListener("change", function () {
-      state.rainbow = els.rainbow.checked;
+    els.rainbow.addEventListener("click", function () {
+      state.rainbow = !state.rainbow;
       saveState();
       render();
     });

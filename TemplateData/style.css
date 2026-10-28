@@ -16,3 +16,15 @@
 .webgl-content .footer .webgl-logo {background-image: url('webgl-logo.png'); width: 204px; float: left;}
 .webgl-content .footer .title {margin-right: 10px; float: right;}
 .webgl-content .footer .fullscreen {background-image: url('fullscreen.png'); width: 38px; float: right;}
+
+/* Keep the game filling the window. The canvas is sized by CSS rather than by
+   its pixel buffer, so quality.js can draw into a larger buffer. Unity removes
+   the canvas's inline size, so these rules carry the size instead. */
+.webgl-content {position: fixed; top: 0; right: 0; bottom: 0; left: 0;}
+.webgl-content #gameContainer, .webgl-content canvas {width: 100% !important; height: 100% !important;}
+
+/* Loading bar drawn in CSS so it stays sharp on any screen: a 2px white
+   outline that fills with white, the same as the original images. */
+.webgl-content .progress {box-shadow: inset 0 0 0 2px #fff;}
+.webgl-content .progress .empty, .webgl-content .progress.Dark .empty {background: none;}
+.webgl-content .progress .full, .webgl-content .progress.Dark .full {background: #fff;}

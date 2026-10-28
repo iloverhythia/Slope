@@ -1,15 +1,33 @@
-/* Settings button and color panel, styled after Slope's own menu:
-   black fill, square 2px outlines, pixel type. --slope-color follows the
-   chosen track color and is set from settings.js. */
+/* Settings button and panel, built from the game's own menu parts: black
+   boxes with a 2px neon outline, the 6809 Chargen dot lettering for buttons,
+   Telegrama for small labels, and the game's red hover state. --slope-color
+   follows the chosen track color and is set from settings.js. */
+
+/* Both fonts ship inside the game's Unity build; these are web copies.
+   6809 Chargen by Ray Larabie (freeware). Telegrama by YOFonts. */
+@font-face {
+  font-family: "Slope Chargen";
+  src: url("fonts/6809chargen.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Slope Telegrama";
+  src: url("fonts/telegrama-raw.woff2") format("woff2");
+  font-display: swap;
+}
+
 .slope-settings {
   --slope-color: #00ff00;
-  --slope-ink: #f2f2f2;
-  --slope-muted: #9a9a9a;
-  --slope-ground: rgba(0, 0, 0, 0.88);
-  --slope-line: #2e2e2e;
-  --slope-font: "Silkscreen", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-family: var(--slope-font);
-  color: var(--slope-ink);
+  --slope-dim: color-mix(in srgb, var(--slope-color) 55%, #000);
+  --slope-ground: #000;
+  /* The game's hover colors, which the track tint leaves red. */
+  --slope-hover: #fa0000;
+  --slope-hover-line: #990000;
+  --slope-display: "Slope Chargen", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --slope-text: "Slope Telegrama", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--slope-text);
+  color: var(--slope-color);
   color-scheme: dark;
 }
 
@@ -26,6 +44,39 @@
   overflow: hidden;
 }
 
+/* Game button: black box, 2px outline. Hover turns it red with a thin dark
+   red outline, like the menu buttons. Selected options fill in. */
+.slope-btn {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--slope-ground);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  color: var(--slope-color);
+  font-family: var(--slope-display);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.slope-btn:hover:not([aria-pressed="true"]):not([aria-expanded="true"]) {
+  box-shadow: inset 0 0 0 1px var(--slope-hover-line);
+  color: var(--slope-hover);
+}
+
+.slope-btn[aria-pressed="true"],
+.slope-btn[aria-expanded="true"] {
+  background: var(--slope-color);
+  color: var(--slope-ground);
+}
+
+.slope-btn:focus-visible,
+.slope-row:focus-within {
+  outline: 2px solid var(--slope-color);
+  outline-offset: 3px;
+}
+
 .slope-gear {
   position: fixed;
   z-index: 1000;
@@ -35,32 +86,6 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  padding: 0;
-  border: 2px solid var(--slope-color);
-  border-radius: 0;
-  background: var(--slope-ground);
-  color: var(--slope-color);
-  cursor: pointer;
-}
-
-.slope-gear svg {
-  transition: transform 0.25s ease;
-}
-
-.slope-gear[aria-expanded="true"] svg {
-  transform: rotate(45deg);
-}
-
-.slope-gear:hover,
-.slope-gear[aria-expanded="true"] {
-  background: var(--slope-color);
-  color: #000;
-}
-
-.slope-settings button:focus-visible,
-.slope-settings input:focus-visible {
-  outline: 2px solid var(--slope-ink);
-  outline-offset: 2px;
 }
 
 .slope-panel {
@@ -70,27 +95,17 @@
   right: calc(12px + env(safe-area-inset-right, 0px));
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  width: min(296px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  gap: 12px;
+  width: min(320px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
   max-height: calc(100% - 78px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
-  padding: 16px 18px 18px;
-  border: 2px solid var(--slope-color);
+  padding: 16px 20px 18px;
   background: var(--slope-ground);
-  box-shadow: 0 0 24px -6px var(--slope-color);
-  font-size: 13px;
-  line-height: 1.3;
-  animation: slope-panel-in 0.14s ease-out;
-  transform-origin: top right;
+  box-shadow: inset 0 0 0 2px var(--slope-color);
 }
 
 .slope-panel[hidden] {
   display: none;
-}
-
-@keyframes slope-panel-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: none; }
 }
 
 .slope-panel-head {
@@ -102,43 +117,33 @@
 
 .slope-panel-title {
   margin: 0;
-  color: var(--slope-color);
-  font-family: var(--slope-font);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-family: var(--slope-display);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .slope-close {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 2px solid var(--slope-line);
-  border-radius: 0;
-  background: transparent;
-  color: var(--slope-ink);
-  cursor: pointer;
-}
-
-.slope-close:hover {
-  border-color: var(--slope-ink);
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
 }
 
 .slope-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-.slope-label {
+.slope-label,
+.slope-readout,
+.slope-hint {
   margin: 0;
-  color: var(--slope-muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--slope-text);
+  font-size: 15px;
+  line-height: 1.25;
 }
 
 .slope-swatches {
@@ -148,53 +153,39 @@
 }
 
 .slope-swatch {
-  aspect-ratio: 1;
+  aspect-ratio: 5 / 4;
   max-width: 100%;
-  padding: 4px;
-  border: 2px solid var(--slope-line);
-  border-radius: 0;
-  background: #000;
-  cursor: pointer;
+  padding: 7px;
+  box-shadow: none;
 }
 
 .slope-swatch span {
   display: block;
   width: 100%;
   height: 100%;
-  background:
-    linear-gradient(var(--swatch), var(--swatch)) center / 100% 3px no-repeat,
-    linear-gradient(var(--swatch), var(--swatch)) center / 3px 100% no-repeat,
-    color-mix(in srgb, var(--swatch) 30%, #000);
-  border: 2px solid var(--swatch);
-}
-
-.slope-swatch:hover {
-  border-color: var(--slope-muted);
-}
-
-.slope-swatch[aria-pressed="true"] {
-  border-color: var(--slope-ink);
-}
-
-.slope-swatch[aria-pressed="true"] span {
   background: var(--swatch);
+}
+
+/* A selected swatch keeps its color and gets the game outline around it. */
+.slope-swatch[aria-pressed="true"] {
+  background: var(--slope-ground);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
 }
 
 .slope-readout {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin: 0;
   font-variant-numeric: tabular-nums;
 }
 
-.slope-readout-hex {
-  color: var(--slope-muted);
+.slope-readout-hex,
+.slope-hint {
+  color: var(--slope-dim);
 }
 
-.slope-rows {
-  gap: 0;
-  border-top: 2px solid var(--slope-line);
+.slope-hint {
+  font-size: 14px;
 }
 
 .slope-row {
@@ -202,94 +193,52 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 48px;
-  border-bottom: 2px solid var(--slope-line);
-  cursor: pointer;
+  min-height: 44px;
+  padding: 0 14px;
+  text-align: left;
 }
 
-.slope-row input[type="color"] {
-  width: 48px;
-  height: 28px;
-  padding: 2px;
-  border: 2px solid var(--slope-ink);
-  border-radius: 0;
-  background: #000;
-  cursor: pointer;
-}
-
-.slope-row input[type="color"]::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-
-.slope-row input[type="color"]::-webkit-color-swatch {
-  border: 0;
-  border-radius: 0;
-}
-
-.slope-row input[type="color"]::-moz-color-swatch {
-  border: 0;
-  border-radius: 0;
-}
-
-.slope-row input[type="checkbox"] {
+.slope-chip {
   position: relative;
   flex: none;
-  width: 48px;
-  height: 26px;
+  width: 40px;
+  height: 22px;
+  padding: 3px;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+/* The native picker sits invisibly over the chip, so it opens from there. */
+.slope-chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
-  border: 2px solid var(--slope-muted);
-  background: #000;
-  appearance: none;
-  -webkit-appearance: none;
+  padding: 0;
+  border: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
-.slope-row input[type="checkbox"]::after {
+.slope-chip::after {
   content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  background: var(--slope-muted);
-  transition: transform 0.15s ease;
-}
-
-.slope-row input[type="checkbox"]:checked {
-  border-color: var(--slope-color);
-}
-
-.slope-row input[type="checkbox"]:checked::after {
+  display: block;
+  width: 100%;
+  height: 100%;
   background: var(--slope-color);
-  transform: translateX(22px);
+}
+
+.slope-segments {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.slope-segments .slope-btn {
+  min-height: 44px;
+  font-size: 18px;
 }
 
 .slope-reset {
   min-height: 44px;
-  padding: 8px 12px;
-  border: 2px solid var(--slope-color);
-  border-radius: 0;
-  background: transparent;
-  color: var(--slope-color);
-  font-family: var(--slope-font);
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.slope-reset:hover {
-  background: var(--slope-color);
-  color: #000;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .slope-panel {
-    animation: none;
-  }
-
-  .slope-gear svg,
-  .slope-row input[type="checkbox"]::after {
-    transition: none;
-  }
 }
