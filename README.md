@@ -9,7 +9,8 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 - **Settings** (gear, top left): track color presets, a custom color, rainbow mode, and Low / High / Ultra graphics.
 - **Sharper graphics**: the game is drawn at full screen resolution or higher, with antialiasing, without changing its menus (`TemplateData/quality.js`).
 - **Instant steering**: the ball moves sideways the moment a key is pressed and stops when it is released.
-- **Gems** on the track. Roll through them to collect them; they can't be spent yet.
+- **Gems** on the track, drawn as part of the game's 3D scene. Roll through them to collect them.
+- **Skin shop**: 10 ball skins to buy with gems. Open it from the gem counter (top left) or the Career screen.
 - **Career** button in the main menu: profile, level and stats. Every run earns score x 10 XP.
 - In the Claude artifact version you can log in with Claude so your Career follows your account.
 
@@ -17,7 +18,7 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 
 The game is a compiled Unity build, so new behavior is added two ways:
 
-- Page scripts in `TemplateData/` draw over the game and read what it draws (`game-bridge.js`, `gems.js`, `profile.js`, `career.js`, `settings.js`).
+- Page scripts in `TemplateData/` read what the game draws and draw into it (`game-bridge.js`, `gems.js`, `skins.js`, `profile.js`, `career.js`, `settings.js`).
 - Small edits to the game's PlayMaker state machines in `Build/slope_data.unityweb`, made with the scripts in `tools/`:
   - steering sets the ball's sideways speed instead of pushing it with a force
   - the main menu gets the Career button

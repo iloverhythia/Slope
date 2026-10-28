@@ -1,6 +1,6 @@
 /*
  * Career: the player's profile, level and stats, opened from the game's
- * Career menu button or the level badge in the HUD. Also records each run
+ * Career menu button or the level badge in the HUD. Links to the skin shop. Also records each run
  * (score -> XP) and shows a short summary when a run ends.
  */
 (function () {
@@ -88,6 +88,7 @@
         '<p class="slope-account-error" role="status" hidden></p>' +
         '<div class="slope-career-actions">' +
           '<button type="button" class="slope-btn slope-login" hidden>Log in with Claude</button>' +
+          '<button type="button" class="slope-btn slope-open-shop" hidden>Skin shop</button>' +
           '<button type="button" class="slope-btn slope-back">Back</button>' +
         "</div>" +
       "</div>";
@@ -119,11 +120,14 @@
       error: screen.querySelector(".slope-account-error"),
       login: screen.querySelector(".slope-login"),
       back: screen.querySelector(".slope-back"),
+      shop: screen.querySelector(".slope-open-shop"),
       toast: toast
     };
 
     badge.addEventListener("click", function () { open(badge); });
     els.back.addEventListener("click", close);
+    els.shop.hidden = !window.SlopeShop;
+    els.shop.addEventListener("click", function () { window.SlopeShop.open(els.shop); });
     els.login.addEventListener("click", function () { profile.signIn(); });
     screen.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
 

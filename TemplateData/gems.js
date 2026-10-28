@@ -10,10 +10,11 @@
  * Gems are placed on stretches of track whose floor edges can be measured
  * from what the game draws, at the height of the floor the ball is rolling
  * on. Roll through one to collect it; it simply disappears. Collected gems
- * are saved to the profile. They have no effect on the game and can't be
- * spent yet.
+ * are saved to the profile and spent in the skin shop (skins.js). They
+ * have no effect on the game itself.
  *
  *   SlopeGems.list()         gems still on the track (slope coordinates)
+ *   SlopeGems.iconSvg(w, h)  the dot-matrix gem icon, as SVG markup
  *   SlopeGems.currentRun()   { gems, seconds } for the run in progress
  */
 (function () {
@@ -274,30 +275,41 @@
   // A dot-matrix gem, in the same round dots as the game's lettering.
   var GEM_DOTS = ["..###..", ".#####.", "#######", ".#####.", "..###..", "...#..."];
 
-  function gemIcon() {
+  function gemIcon(width, height) {
     var dots = "";
     GEM_DOTS.forEach(function (row, y) {
       for (var x = 0; x < row.length; x++) {
         if (row[x] === "#") dots += '<circle cx="' + (x + 0.5) + '" cy="' + (y + 0.5) + '" r="0.45"/>';
       }
     });
-    return '<svg viewBox="0 0 7 6" width="21" height="18" fill="currentColor" aria-hidden="true" focusable="false">' + dots + "</svg>";
+    return '<svg viewBox="0 0 7 6" width="' + (width || 21) + '" height="' + (height || 18) +
+      '" fill="currentColor" aria-hidden="true" focusable="false">' + dots + "</svg>";
   }
 
+  // The counter also opens the skin shop, where gems are spent.
   function mountCounter(ui) {
-    var counter = document.createElement("div");
-    counter.className = "slope-hud-item slope-gems";
-    counter.innerHTML = gemIcon() + '<span class="slope-gems-count">0</span><span class="slope-visually-hidden"> gems</span>';
+    var counter = document.createElement("button");
+    counter.type = "button";
+    counter.className = "slope-btn slope-hud-item slope-gems";
+    counter.title = "Skin shop";
+    counter.innerHTML = gemIcon() + '<span class="slope-gems-count" aria-hidden="true">0</span>';
     ui.hud.appendChild(counter);
     var count = counter.querySelector(".slope-gems-count");
-    if (window.SlopeProfile) {
-      window.SlopeProfile.onChange(function (p) { count.textContent = String(p.gems); });
+    function show(n) {
+      count.textContent = String(n);
+      counter.setAttribute("aria-label", "Skin shop, " + n + (n === 1 ? " gem" : " gems"));
     }
+    show(0);
+    counter.addEventListener("click", function () {
+      if (window.SlopeShop) window.SlopeShop.open(counter);
+    });
+    if (window.SlopeProfile) window.SlopeProfile.onChange(function (p) { show(p.gems); });
   }
 
   if (window.SlopeUI) window.SlopeUI.ready(mountCounter);
 
   window.SlopeGems = {
+    iconSvg: gemIcon,
     list: function () {
       return gems.map(function (g) { return { s: g.s, x: g.x, h: g.h }; });
     },

@@ -1,5 +1,5 @@
 /*
- * Player profile: XP, level, gems and run stats.
+ * Player profile: XP, level, gems, ball skins and run stats.
  *
  * XP comes from score: every run earns score x 10 XP. Reaching level L takes
  * 50 * L * (L - 1) XP in total, so each level needs 100 XP more than the last.
@@ -12,6 +12,8 @@
  *   SlopeProfile.get()             current profile with level info
  *   SlopeProfile.recordRun(run)    { score, gems, seconds } -> { xp, levelBefore, levelAfter }
  *   SlopeProfile.addGems(n)
+ *   SlopeProfile.buySkin(id, price)   spends gems; true if bought (and equips it)
+ *   SlopeProfile.equipSkin(id)
  *   SlopeProfile.onChange(fn)
  *   SlopeProfile.account           { available, signedIn, name, avatarUrl, error }
  *   SlopeProfile.signIn()          asks the viewer to allow Claude login
@@ -38,7 +40,7 @@
   };
 
   function blank() {
-    return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [] };
+    return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic" };
   }
 
   function clean(d) {
@@ -46,9 +48,15 @@
     if (!d || typeof d !== "object") return b;
     Object.keys(b).forEach(function (k) {
       if (k === "recent") b.recent = Array.isArray(d.recent) ? d.recent.slice(-RECENT_RUNS) : [];
+      else if (k === "skins") b.skins = Array.isArray(d.skins) ? d.skins.filter(isSkinId) : [];
+      else if (k === "skin") b.skin = isSkinId(d.skin) ? d.skin : "classic";
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
     });
     return b;
+  }
+
+  function isSkinId(id) {
+    return typeof id === "string" && /^[a-z0-9-]{1,32}$/.test(id);
   }
 
   function readLocal() {
@@ -69,6 +77,7 @@
     var info = levelFor(data.xp);
     return Object.assign({}, data, {
       recent: data.recent.slice(),
+      skins: data.skins.slice(),
       level: info.level,
       levelXp: info.into,
       levelNeed: info.need,
@@ -126,6 +135,24 @@
     changed();
   }
 
+  function buySkin(id, price) {
+    price = Math.floor(price);
+    if (!isSkinId(id) || !(price >= 0) || data.skins.indexOf(id) !== -1 || data.gems < price) return false;
+    data.gems -= price;
+    data.skins.push(id);
+    data.skin = id;
+    save();
+    changed();
+    return true;
+  }
+
+  function equipSkin(id) {
+    if (!isSkinId(id) || (id !== "classic" && data.skins.indexOf(id) === -1)) return;
+    data.skin = id;
+    save();
+    changed();
+  }
+
   function merge(a, b) {
     return clean({
       xp: a.xp + b.xp,
@@ -135,6 +162,8 @@
       total: a.total + b.total,
       bestGems: Math.max(a.bestGems, b.bestGems),
       playSeconds: a.playSeconds + b.playSeconds,
+      skins: a.skins.concat(b.skins.filter(function (id) { return a.skins.indexOf(id) === -1; })),
+      skin: a.skin !== "classic" ? a.skin : b.skin,
       recent: a.recent.concat(b.recent).sort(function (x, y) { return (x.at || 0) - (y.at || 0); })
     });
   }
@@ -151,7 +180,7 @@
         return ref.get().then(function (snap) {
           var saved = snap.exists ? clean(snap.data()) : blank();
           var guest = readLocal();
-          var hasGuest = guest.runs > 0 || guest.gems > 0;
+          var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0;
           data = hasGuest ? merge(saved, guest) : saved;
           remote = { ref: ref };
           account.signedIn = true;
@@ -205,6 +234,8 @@
     xpPerPoint: XP_PER_POINT,
     recordRun: recordRun,
     addGems: addGems,
+    buySkin: buySkin,
+    equipSkin: equipSkin,
     signIn: signIn,
     account: account,
     onChange: function (fn) { listeners.push(fn); fn(snapshot(), account); }

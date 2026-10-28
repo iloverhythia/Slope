@@ -18,10 +18,16 @@
  * they draw like any other object. The game's WebGL state is saved before and
  * restored after, so the game never notices.
  *
+ * A ball painter draws the ball in place of the game: it gets the game's
+ * WebGL context with the ball's mesh bound, the camera and the ball's
+ * object-to-world matrix, and calls draw() after switching to its own
+ * program. Returning false lets the game draw its own ball.
+ *
  * Load after quality.js and before the Unity loader creates the game canvas.
  *
  *   SlopeGame.on("runstart" | "runend" | "career" | "frame", handler)
  *   SlopeGame.on("scene", function ({ gl, vp }) { ... })   WebGL2 only
+ *   SlopeGame.paintBall(function ({ gl, vp, o2w, draw }) { ... return true; })
  */
 (function () {
   "use strict";
@@ -33,6 +39,7 @@
   var SQRT1_2 = Math.SQRT1_2;
 
   var handlers = {};
+  var ballPainter = null;
   function on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); }
   function emit(name, data) {
     (handlers[name] || []).forEach(function (fn) {
@@ -209,10 +216,30 @@
       if (name === VP_NAME) vp = new Float32Array(a[1].subarray(0, 16));
       else if (name === O2W_NAME) o2w = new Float32Array(a[1].subarray(0, 16));
     });
-    wrap("drawElements", function (a) {
-      if (!onScreen || !vp || !o2w || !isPerspective(vp)) return;
+    // The ball can be drawn by the page instead (ball skins): the painter
+    // draws the game's own ball mesh with its own program, so position, size,
+    // rolling and depth all stay the game's.
+    function paintBall(args) {
+      if (!ballPainter) return false;
+      var program = gl.getParameter(gl.CURRENT_PROGRAM);
+      try {
+        return !!ballPainter({ gl: gl, vp: vp, o2w: o2w, draw: function () { raw.drawElements.apply(gl, args); } });
+      } catch (e) {
+        console.error(e);
+        return false;
+      } finally {
+        gl.useProgram(program);
+      }
+    }
+
+    raw.drawElements = gl.drawElements;
+    gl.drawElements = function (mode, count) {
+      var seen = onScreen && vp && o2w && isPerspective(vp);
+      var isBall = seen && count === BALL_INDEX_COUNT;
+      if (!(isBall && paintBall(arguments))) raw.drawElements.apply(gl, arguments);
+      if (!seen) return;
       frame = frame || newFrame();
-      if (a[1] === BALL_INDEX_COUNT) {
+      if (isBall) {
         frame.vp = vp;
         frame.ball = toSlope([o2w[12], o2w[13], o2w[14]]);
         frame.ball.world = [o2w[12], o2w[13], o2w[14]];
@@ -222,12 +249,12 @@
         }
         return;
       }
-      var bounds = localBounds(gl, vao, a[1], a[2], a[3]);
+      var bounds = localBounds(gl, vao, count, arguments[2], arguments[3]);
       if (!bounds) return;
       var ext = slopeExtent(o2w, bounds);
       var width = ext.x1 - ext.x0;
       if (width > 3 && width < 14 && ext.s1 - ext.s0 < 600) frame.pieces.push(ext);
-    });
+    };
   }
 
   var getContext = HTMLCanvasElement.prototype.getContext;
@@ -255,6 +282,7 @@
 
   window.SlopeGame = {
     on: on,
+    paintBall: function (fn) { ballPainter = fn || null; },
     toSlope: toSlope,
     // Slope coordinates back to world coordinates.
     toWorld: function (s, h, x) {

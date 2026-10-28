@@ -1,0 +1,98 @@
+/* Skin shop, on the Career screen's frame (career.css): black screen, cards
+   with 2px neon outlines, dot lettering. Tokens come from settings.css. */
+
+.slope-shop-inner {
+  width: min(760px, 100%);
+}
+
+.slope-shop-balance {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: var(--slope-display);
+  font-size: 30px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-shop-gems-label {
+  font-family: var(--slope-text);
+  font-size: 16px;
+}
+
+.slope-shop-note,
+.slope-shop-status {
+  color: var(--slope-dim);
+  font-size: 15px;
+  text-align: center;
+}
+
+.slope-shop-status {
+  min-height: 1.25em;
+  color: var(--slope-color);
+}
+
+.slope-skins {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slope-skin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 12px 12px;
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+}
+
+.slope-skin.is-equipped {
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+}
+
+.slope-skin-preview {
+  width: 96px;
+  height: 96px;
+  max-width: 100%;
+}
+
+.slope-skin-name {
+  font-family: var(--slope-display);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.slope-skin-price {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-skin-action {
+  width: 100%;
+  min-height: 40px;
+  font-size: 18px;
+}
+
+/* Not enough gems yet: dimmed, and no red hover. */
+.slope-shop .slope-btn:disabled,
+.slope-shop .slope-btn:disabled:hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: not-allowed;
+}
+
+@media (max-width: 400px) {
+  .slope-skins {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
