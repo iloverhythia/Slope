@@ -2,12 +2,6 @@
    parts as the game's menu: black boxes, 2px neon outlines, dot lettering.
    Tokens come from .slope-settings in settings.css. */
 
-.slope-fx {
-  position: fixed;
-  z-index: 900;
-  pointer-events: none;
-}
-
 /* --- HUD ------------------------------------------------------------------ */
 
 .slope-hud-item {
@@ -23,18 +17,6 @@
   font-size: 20px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-}
-
-.slope-gems svg {
-  color: var(--slope-gem, #ff4fff);
-}
-
-.slope-gems.is-bumped {
-  animation: slope-bump 0.35s ease-out;
-}
-
-@keyframes slope-bump {
-  40% { transform: scale(1.12); }
 }
 
 .slope-level-badge-label {
@@ -333,7 +315,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .slope-gems.is-bumped,
   .slope-toast {
     animation: none;
   }

@@ -13,9 +13,15 @@
  * slope coordinates: s (distance down the track), h (height off the slope
  * plane) and x (sideways).
  *
+ * "scene" handlers draw into the game's own 3D scene: they run right after
+ * the ball is drawn, with depth testing on, so walls and the ball hide what
+ * they draw like any other object. The game's WebGL state is saved before and
+ * restored after, so the game never notices.
+ *
  * Load after quality.js and before the Unity loader creates the game canvas.
  *
  *   SlopeGame.on("runstart" | "runend" | "career" | "frame", handler)
+ *   SlopeGame.on("scene", function ({ gl, vp }) { ... })   WebGL2 only
  */
 (function () {
   "use strict";
@@ -122,15 +128,52 @@
     var defaultVao = vao;
     var arrayBuffer = null, nextId = 1;
     var vp = null, o2w = null, onScreen = true;
+    var raw = {}; // the unwrapped methods
 
     function wrap(name, after) {
       var fn = gl[name];
       if (!fn) return;
+      raw[name] = fn;
       gl[name] = function () {
         var result = fn.apply(gl, arguments);
         after(arguments, result);
         return result;
       };
+    }
+
+    // Draw extra objects into the scene without disturbing the game's state.
+    var SWITCHES = gl.createVertexArray ? [gl.BLEND, gl.DEPTH_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.SCISSOR_TEST,
+      gl.POLYGON_OFFSET_FILL, gl.SAMPLE_ALPHA_TO_COVERAGE, gl.SAMPLE_COVERAGE, gl.RASTERIZER_DISCARD] : [];
+
+    function drawScene(viewProjection) {
+      if (!handlers.scene || !gl.createVertexArray) return;
+      var saved = {
+        program: gl.getParameter(gl.CURRENT_PROGRAM),
+        vertexArray: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
+        arrayBinding: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
+        switches: SWITCHES.map(function (c) { return gl.isEnabled(c); }),
+        depthFunc: gl.getParameter(gl.DEPTH_FUNC),
+        depthMask: gl.getParameter(gl.DEPTH_WRITEMASK),
+        colorMask: gl.getParameter(gl.COLOR_WRITEMASK),
+        tracked: { vao: vao, arrayBuffer: arrayBuffer }
+      };
+      SWITCHES.forEach(function (c) { if (c === gl.DEPTH_TEST) gl.enable(c); else gl.disable(c); });
+      gl.depthFunc(gl.LEQUAL);
+      gl.depthMask(true);
+      gl.colorMask(true, true, true, true);
+      try {
+        emit("scene", { gl: gl, vp: viewProjection });
+      } finally {
+        gl.useProgram(saved.program);
+        raw.bindVertexArray.call(gl, saved.vertexArray);
+        raw.bindBuffer.call(gl, gl.ARRAY_BUFFER, saved.arrayBinding);
+        SWITCHES.forEach(function (c, i) { if (saved.switches[i]) gl.enable(c); else gl.disable(c); });
+        gl.depthFunc(saved.depthFunc);
+        gl.depthMask(saved.depthMask);
+        gl.colorMask.apply(gl, saved.colorMask);
+        vao = saved.tracked.vao;
+        arrayBuffer = saved.tracked.arrayBuffer;
+      }
     }
 
     wrap("createBuffer", function (a, buffer) { if (buffer) buffer.__slopeId = nextId++; });
@@ -173,6 +216,10 @@
         frame.vp = vp;
         frame.ball = toSlope([o2w[12], o2w[13], o2w[14]]);
         frame.ball.world = [o2w[12], o2w[13], o2w[14]];
+        if (!frame.sceneDrawn) {
+          frame.sceneDrawn = true;
+          drawScene(vp);
+        }
         return;
       }
       var bounds = localBounds(gl, vao, a[1], a[2], a[3]);

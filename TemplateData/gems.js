@@ -1,13 +1,19 @@
 /*
- * Gems: collectibles placed on the track ahead of the ball.
+ * Gems: collectibles on the track ahead of the ball.
  *
- * Gems are drawn on a canvas over the game, projected with the game camera
- * (from game-bridge.js) so they sit on the track and move with it. They are
- * placed between the track's edges, using the sideways extent of the track
- * pieces on screen, and hover just above the floor the ball is rolling on.
- * Roll through one to collect it. Collected gems are saved to the profile;
- * they can't be spent on anything yet.
+ * Gems are drawn inside the game's own 3D scene (see "scene" in
+ * game-bridge.js), so the walls and the ball hide them, they get the game's
+ * antialiasing, and the track colour setting tints them like everything else.
+ * They are built like the game's own pieces: dark faces with bright neon
+ * edges, resting on their tip on the track and turning slowly.
  *
+ * Gems are placed on stretches of track whose floor edges can be measured
+ * from what the game draws, at the height of the floor the ball is rolling
+ * on. Roll through one to collect it; it simply disappears. Collected gems
+ * are saved to the profile. They have no effect on the game and can't be
+ * spent yet.
+ *
+ *   SlopeGems.list()         gems still on the track (slope coordinates)
  *   SlopeGems.currentRun()   { gems, seconds } for the run in progress
  */
 (function () {
@@ -17,20 +23,21 @@
   if (!game) return;
 
   var BALL_RADIUS = 0.5;
-  var GEM_SIZE = 0.42;          // world units, centre to tip
-  var HOVER = 0.8;              // gem centre above the floor
-  var SPAWN_AHEAD = 75;         // place gems this far down the track
-  var FADE_IN = 18;             // fade in over this distance after spawning
+  var GEM_RADIUS = 0.36;        // world units, centre to the side corners
+  var GEM_TALL = 1.35;          // tip-to-centre height, relative to the radius
+  var REST = GEM_RADIUS * GEM_TALL + 0.02; // centre above the floor: resting on its tip
+  var SPIN = 1.4;               // radians per second
+  var SPAWN_AHEAD = 80;         // place gems this far down the track
   var GAP_MIN = 20, GAP_MAX = 38;
   var EDGE_MARGIN = 1.1;        // keep away from the track's edges
   var PICKUP = { s: 0.95, x: 0.95, h: 1.6 };
 
-  var NORMAL = [0, Math.SQRT1_2, Math.SQRT1_2];   // slope "up"
+  // Slope directions in world space: up off the track, sideways, downhill.
+  var NORMAL = [0, Math.SQRT1_2, Math.SQRT1_2];
   var SIDE = [1, 0, 0];
   var DOWNHILL = [0, -Math.SQRT1_2, Math.SQRT1_2];
 
   var gems = [];
-  var pops = [];
   var running = false;
   var nextS = null;
   var floorH = null;
@@ -38,63 +45,49 @@
   var grounded = 0;            // frames the ball has been on the floor
   var lastTime = 0;
   var run = { gems: 0, start: 0 };
-  var lastFrame = null;
-
-  var canvas = document.createElement("canvas");
-  canvas.className = "slope-fx";
-  canvas.setAttribute("aria-hidden", "true");
-  var ctx = canvas.getContext("2d");
-  var counter = null;
-
-  // --- Colour: the complement of the track colour ----------------------------
-
-  function hexToHsl(hex) {
-    var n = parseInt(hex.slice(1), 16);
-    var r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
-    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min, h = 0;
-    if (d) {
-      if (max === r) h = ((g - b) / d) % 6;
-      else if (max === g) h = (b - r) / d + 2;
-      else h = (r - g) / d + 4;
-      h *= 60;
-      if (h < 0) h += 360;
-    }
-    return { h: h, s: max === 0 ? 0 : d / max };
-  }
-
-  function gemHue() {
-    var theme = hexToHsl((window.SlopeUI && window.SlopeUI.themeColor) || "#00ff00");
-    return theme.s < 0.2 ? 315 : (theme.h + 180) % 360; // white track: pink gems
-  }
 
   // --- Placement -------------------------------------------------------------
 
+  // The tunnel floors are single meshes, so their edges can be measured from
+  // what the game draws. Other stretches (the city) are drawn in batches that
+  // can't be measured, so they get no gems rather than gems beside the track.
+  function isFloor(p) { return p.x1 - p.x0 < 9; }
+
   function trackRange(pieces, s) {
-    var lo = -Infinity, hi = Infinity, any = false, narrow = false;
+    var lo = -Infinity, hi = Infinity, any = false;
     pieces.forEach(function (p) {
-      if (s < p.s0 || s > p.s1) return;
-      var isNarrow = p.x1 - p.x0 < 9; // the side rails
-      if (isNarrow && !narrow) { lo = -Infinity; hi = Infinity; narrow = true; }
-      if (narrow && !isNarrow) return;
+      if (!isFloor(p) || s < p.s0 || s > p.s1) return;
       lo = Math.max(lo, p.x0); hi = Math.min(hi, p.x1); any = true;
     });
-    if (!any || hi - lo < 1) return null;
+    if (!any || hi - lo < 2 * EDGE_MARGIN) return null;
     return { lo: lo + EDGE_MARGIN, hi: hi - EDGE_MARGIN };
+  }
+
+  // The first point at or after s that has measured floor under it.
+  function nextFloor(pieces, s) {
+    var best = Infinity;
+    pieces.forEach(function (p) {
+      if (isFloor(p) && p.s1 > s) best = Math.min(best, Math.max(p.s0, s));
+    });
+    return best;
   }
 
   function spawnAhead(frame) {
     var ball = frame.ball;
-    if (nextS === null) nextS = ball.s + 30;
-    var guard = 0;
-    while (nextS < ball.s + SPAWN_AHEAD && guard++ < 8) {
-      var range = trackRange(frame.pieces, nextS);
-      if (!range) { nextS += 8; continue; }
-      var x = range.hi > range.lo ? range.lo + Math.random() * (range.hi - range.lo) : (range.lo + range.hi) / 2;
+    // Never place a gem close enough to be seen appearing.
+    nextS = Math.max(nextS === null ? -Infinity : nextS, ball.s + 30);
+    for (var guard = 0; guard < 8; guard++) {
+      var s = nextFloor(frame.pieces, nextS);
+      if (s > ball.s + SPAWN_AHEAD) return;
+      var range = trackRange(frame.pieces, s);
+      if (!range) { nextS = s + 4; continue; }
+      var x = range.lo + Math.random() * (range.hi - range.lo);
       var line = Math.random() < 0.3 ? 3 : 1;
       for (var i = 0; i < line; i++) {
-        gems.push({ s: nextS + i * 3.5, x: x, h: floorH + HOVER, born: nextS + i * 3.5, spin: Math.random() * 6.3 });
+        if (i && !trackRange(frame.pieces, s + i * 3.5)) break;
+        gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI });
       }
-      nextS += GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN) + (line - 1) * 3.5;
+      nextS = s + GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN) + (line - 1) * 3.5;
     }
   }
 
@@ -117,7 +110,6 @@
   game.on("runend", function () {
     running = false;
     gems = [];
-    wipe(); // frames can stop as soon as the ball is gone
   });
 
   // --- Per frame -------------------------------------------------------------
@@ -138,162 +130,144 @@
     var now = performance.now();
     var dt = lastTime ? Math.min(0.25, (now - lastTime) / 1000) : 0;
     lastTime = now;
-    lastFrame = frame;
     if (lastBall && ball.s < lastBall.s - 20) reset(); // the ball was moved back
-    // The floor is the slope plane under the ball; keep the last value while airborne.
-    var under = ball.h - BALL_RADIUS;
-    var steady = lastBall && Math.abs(ball.h - lastBall.h) < 0.05 + dt * 2;
-    grounded = steady ? grounded + 1 : 0;
-    if (floorH === null || under < floorH || (steady && Math.abs(under - floorH) < 0.8)) floorH = under;
+    // The floor is the track under the ball. Rolling on it, the ball keeps its
+    // height above the slope; on the starting ramp or in the air the height
+    // changes as it moves, so the last floor is kept until it lands.
+    var level = lastBall && Math.abs(ball.h - lastBall.h) < 0.02 + 0.05 * Math.abs(ball.s - lastBall.s);
+    grounded = level ? grounded + 1 : 0;
+    if (grounded > 3) floorH = ball.h - BALL_RADIUS;
 
-    if (running && grounded > 3) {
-      spawnAhead(frame);
+    if (running) {
+      if (floorH !== null && grounded > 3) spawnAhead(frame);
       var settle = 1 - Math.exp(-dt * 6);
       gems.forEach(function (g) {
-        if (g.s - ball.s < 20) g.h += (floorH + HOVER - g.h) * settle; // settle onto the floor ahead
-        if (!g.taken && lastBall && touches(g, lastBall, ball)) collect(g, frame);
+        g.h += (floorH + REST - g.h) * settle; // follow the floor if it changes level
+        if (lastBall && touches(g, lastBall, ball)) collect(g);
       });
       gems = gems.filter(function (g) { return !g.taken && g.s > ball.s - 8; });
     }
     lastBall = { s: ball.s, h: ball.h, x: ball.x };
-    draw(frame);
   });
 
-  function collect(g, frame) {
+  function collect(g) {
     g.taken = true;
     run.gems += 1;
-    var p = project(frame.vp, game.toWorld(g.s, g.h, g.x));
-    if (p) pops.push({ x: p.x, y: p.y, t: performance.now(), hue: gemHue() });
     if (window.SlopeProfile) window.SlopeProfile.addGems(1);
-    if (counter) {
-      counter.classList.remove("is-bumped");
-      void counter.offsetWidth; // restart the animation
-      counter.classList.add("is-bumped");
+  }
+
+  // --- Drawing in the game's scene ----------------------------------------------
+
+  var VERTEX_SHADER = [
+    "attribute vec3 aPos;",
+    "attribute vec3 aBary;",
+    "attribute vec3 aNormal;",
+    "uniform mat4 uViewProjection;",
+    "uniform vec3 uCentre, uSide, uUp, uDownhill;",
+    "uniform float uRadius;",
+    "varying vec3 vBary;",
+    "varying float vLight;",
+    "void main() {",
+    "  vec3 world = uCentre + (uSide * aPos.x + uUp * aPos.y + uDownhill * aPos.z) * uRadius;",
+    "  vec3 n = normalize(uSide * aNormal.x + uUp * aNormal.y + uDownhill * aNormal.z);",
+    "  vLight = 0.35 + 0.65 * max(0.0, dot(n, normalize(vec3(0.35, 0.75, -0.55))));",
+    "  vBary = aBary;",
+    "  gl_Position = uViewProjection * vec4(world, 1.0);",
+    "}"
+  ].join("\n");
+
+  // Green is the game's own neon: the track colour setting tints it with the rest.
+  var FRAGMENT_SHADER = [
+    "precision mediump float;",
+    "varying vec3 vBary;",
+    "varying float vLight;",
+    "void main() {",
+    "  float edge = min(min(vBary.x, vBary.y), vBary.z);",
+    "  float line = 1.0 - smoothstep(0.045, 0.075, edge);",
+    "  vec3 face = vec3(0.0, 0.16, 0.01) * vLight;",
+    "  gl_FragColor = vec4(mix(face, vec3(0.3, 1.0, 0.3), line), 1.0);",
+    "}"
+  ].join("\n");
+
+  // An octahedron: a point up, a point down, four corners around the middle.
+  function gemMesh() {
+    var top = [0, GEM_TALL, 0], bottom = [0, -GEM_TALL, 0];
+    var ring = [[1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 0, -1]];
+    var data = [];
+    function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+    function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+    function face(a, b, c) {
+      var n = cross(sub(b, a), sub(c, a));
+      var len = Math.hypot(n[0], n[1], n[2]);
+      n = [n[0] / len, n[1] / len, n[2] / len];
+      [[a, [1, 0, 0]], [b, [0, 1, 0]], [c, [0, 0, 1]]].forEach(function (v) {
+        data.push(v[0][0], v[0][1], v[0][2], v[1][0], v[1][1], v[1][2], n[0], n[1], n[2]);
+      });
     }
-  }
-
-  // --- Drawing ---------------------------------------------------------------
-
-  var cssW = 0, cssH = 0, dpr = 1;
-
-  function fit() {
-    var game = document.getElementById("gameContainer");
-    var rect = game ? game.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight };
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cssW = rect.width; cssH = rect.height;
-    canvas.style.left = rect.left + "px"; canvas.style.top = rect.top + "px";
-    canvas.style.width = cssW + "px"; canvas.style.height = cssH + "px";
-    var w = Math.round(cssW * dpr), h = Math.round(cssH * dpr);
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-  }
-
-  function project(vp, p) {
-    var cx = vp[0] * p[0] + vp[4] * p[1] + vp[8] * p[2] + vp[12];
-    var cy = vp[1] * p[0] + vp[5] * p[1] + vp[9] * p[2] + vp[13];
-    var cw = vp[3] * p[0] + vp[7] * p[1] + vp[11] * p[2] + vp[15];
-    if (cw < 0.3) return null;
-    return { x: (cx / cw * 0.5 + 0.5) * cssW, y: (0.5 - cy / cw * 0.5) * cssH, w: cw };
-  }
-
-  function add(a, b, k) { return [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k]; }
-
-  function drawGem(vp, g, time, hue, alpha) {
-    var c = game.toWorld(g.s, g.h + Math.sin(time / 380 + g.spin) * 0.08, g.x);
-    var spin = time / 700 + g.spin;
-    var pts = [add(c, NORMAL, GEM_SIZE * 1.3), add(c, NORMAL, -GEM_SIZE * 1.3)];
-    for (var k = 0; k < 4; k++) {
-      var a = spin + k * Math.PI / 2;
-      pts.push(add(add(c, SIDE, Math.cos(a) * GEM_SIZE), DOWNHILL, Math.sin(a) * GEM_SIZE));
-    }
-    var sp = pts.map(function (p) { return project(vp, p); });
-    if (sp.some(function (p) { return !p; })) return;
-    var centre = project(vp, c);
-    var radius = Math.abs(sp[0].y - sp[1].y) * 0.75 + 2;
-
-    ctx.globalAlpha = alpha;
-    var glow = ctx.createRadialGradient(centre.x, centre.y, 0, centre.x, centre.y, radius * 2.2);
-    glow.addColorStop(0, "hsla(" + hue + ",100%,62%,0.55)");
-    glow.addColorStop(1, "hsla(" + hue + ",100%,62%,0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(centre.x, centre.y, radius * 2.2, 0, Math.PI * 2); ctx.fill();
-
-    var faces = [];
     for (var i = 0; i < 4; i++) {
-      var e1 = 2 + i, e2 = 2 + (i + 1) % 4;
-      faces.push([0, e1, e2], [1, e2, e1]);
+      var a = ring[i], b = ring[(i + 1) % 4];
+      face(top, b, a);
+      face(bottom, a, b);
     }
-    faces.forEach(function (f, n) {
-      f.idx = n; // facets alternate light and dark, like a cut stone
-      f.depth = (sp[f[0]].w + sp[f[1]].w + sp[f[2]].w) / 3;
-    });
-    faces.sort(function (p, q) { return q.depth - p.depth; }); // far faces first
-    faces.forEach(function (f) {
-      var a = sp[f[0]], b = sp[f[1]], d = sp[f[2]];
-      var top = f[0] === 0;
-      var light = top ? 60 + (f.idx % 4 < 2 ? 14 : 0) : 36 + (f.idx % 4 < 2 ? 10 : 0);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(d.x, d.y); ctx.closePath();
-      ctx.fillStyle = "hsla(" + hue + ",100%," + light + "%,0.92)";
-      ctx.fill();
-      ctx.strokeStyle = "hsl(" + hue + ",100%,86%)";
-      ctx.lineWidth = Math.max(1, radius / 14);
-      ctx.stroke();
-    });
-    ctx.globalAlpha = 1;
+    return new Float32Array(data);
   }
 
-  var dirty = false; // something is drawn on the overlay
+  var res = null;     // GL resources for the game's context
+  var failed = false;
 
-  function draw(frame) {
-    fit();
-    var time = performance.now();
-    var shown = running ? gems : [];
-    if (!shown.length && !pops.length) {
-      if (dirty) { wipe(); dirty = false; }
-      return;
+  function setup(gl) {
+    function shader(type, src) {
+      var sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+      return sh;
     }
-    dirty = true;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
-    var hue = gemHue();
-    var ball = frame.ball;
-    shown.slice().sort(function (a, b) { return b.s - a.s; }).forEach(function (g) {
-      var age = (ball.s + SPAWN_AHEAD) - g.born;
-      var alpha = Math.max(0, Math.min(1, age / FADE_IN));
-      if (alpha > 0) drawGem(frame.vp, g, time, hue, alpha);
-    });
-    drawPops(time);
-  }
+    var program = gl.createProgram();
+    gl.attachShader(program, shader(gl.VERTEX_SHADER, VERTEX_SHADER));
+    gl.attachShader(program, shader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER));
+    gl.bindAttribLocation(program, 0, "aPos");
+    gl.bindAttribLocation(program, 1, "aBary");
+    gl.bindAttribLocation(program, 2, "aNormal");
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
 
-  function drawPops(time) {
-    pops = pops.filter(function (p) { return time - p.t < 650; });
-    pops.forEach(function (p) {
-      var k = (time - p.t) / 650;
-      ctx.globalAlpha = 1 - k;
-      ctx.strokeStyle = "hsl(" + p.hue + ",100%,70%)";
-      ctx.lineWidth = 3 * (1 - k) + 1;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 10 + k * 34, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = "hsl(" + p.hue + ",100%,74%)";
-      ctx.font = '24px "Slope Chargen", monospace';
-      ctx.textAlign = "center";
-      ctx.fillText("+1", p.x, p.y - 18 - k * 40);
-    });
-    ctx.globalAlpha = 1;
-  }
-
-  // Clear the overlay for sure: resetting the size empties the canvas.
-  function wipe() {
-    var w = canvas.width;
-    canvas.width = w;
-  }
-
-  // Keep the overlay clear when the game stops drawing frames with the ball.
-  setInterval(function () {
-    if (lastFrame && performance.now() - (lastFrame.seen || 0) > 400) {
-      wipe();
-      lastFrame = null;
+    var vertexArray = gl.createVertexArray();
+    gl.bindVertexArray(vertexArray);
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, gemMesh(), gl.STATIC_DRAW);
+    for (var i = 0; i < 3; i++) {
+      gl.enableVertexAttribArray(i);
+      gl.vertexAttribPointer(i, 3, gl.FLOAT, false, 36, i * 12);
     }
-  }, 500);
-  game.on("frame", function (f) { f.seen = performance.now(); });
+    var u = {};
+    ["uViewProjection", "uCentre", "uSide", "uUp", "uDownhill", "uRadius"].forEach(function (name) {
+      u[name] = gl.getUniformLocation(program, name);
+    });
+    return { gl: gl, program: program, vertexArray: vertexArray, u: u };
+  }
+
+  game.on("scene", function (scene) {
+    if (!running || !gems.length || failed) return;
+    var gl = scene.gl;
+    if (!res || res.gl !== gl) {
+      try { res = setup(gl); } catch (e) { failed = true; console.warn("Slope gems: can't draw", e); return; }
+    }
+    gl.useProgram(res.program);
+    gl.bindVertexArray(res.vertexArray);
+    gl.uniformMatrix4fv(res.u.uViewProjection, false, scene.vp);
+    gl.uniform3fv(res.u.uUp, NORMAL);
+    gl.uniform1f(res.u.uRadius, GEM_RADIUS);
+    var t = performance.now() / 1000;
+    gems.forEach(function (g) {
+      var a = t * SPIN + g.turn, c = Math.cos(a), s = Math.sin(a);
+      gl.uniform3fv(res.u.uCentre, game.toWorld(g.s, g.h, g.x));
+      gl.uniform3f(res.u.uSide, SIDE[0] * c + DOWNHILL[0] * s, SIDE[1] * c + DOWNHILL[1] * s, SIDE[2] * c + DOWNHILL[2] * s);
+      gl.uniform3f(res.u.uDownhill, DOWNHILL[0] * c - SIDE[0] * s, DOWNHILL[1] * c - SIDE[1] * s, DOWNHILL[2] * c - SIDE[2] * s);
+      gl.drawArrays(gl.TRIANGLES, 0, 24);
+    });
+  });
 
   // --- HUD counter -----------------------------------------------------------
 
@@ -311,25 +285,19 @@
   }
 
   function mountCounter(ui) {
-    counter = document.createElement("div");
+    var counter = document.createElement("div");
     counter.className = "slope-hud-item slope-gems";
-    counter.setAttribute("role", "status");
     counter.innerHTML = gemIcon() + '<span class="slope-gems-count">0</span><span class="slope-visually-hidden"> gems</span>';
     ui.hud.appendChild(counter);
-    ui.root.insertBefore(canvas, ui.root.firstChild);
     var count = counter.querySelector(".slope-gems-count");
     if (window.SlopeProfile) {
       window.SlopeProfile.onChange(function (p) { count.textContent = String(p.gems); });
     }
-    setInterval(function () {
-      counter.style.setProperty("--slope-gem", "hsl(" + gemHue() + ",100%,66%)");
-    }, 250);
   }
 
   if (window.SlopeUI) window.SlopeUI.ready(mountCounter);
 
   window.SlopeGems = {
-    // Gems still on the track, in slope coordinates.
     list: function () {
       return gems.map(function (g) { return { s: g.s, x: g.x, h: g.h }; });
     },
