@@ -1,0 +1,295 @@
+/* Settings button and color panel, styled after Slope's own menu:
+   black fill, square 2px outlines, pixel type. --slope-color follows the
+   chosen track color and is set from settings.js. */
+.slope-settings {
+  --slope-color: #00ff00;
+  --slope-ink: #f2f2f2;
+  --slope-muted: #9a9a9a;
+  --slope-ground: rgba(0, 0, 0, 0.88);
+  --slope-line: #2e2e2e;
+  --slope-font: "Silkscreen", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--slope-font);
+  color: var(--slope-ink);
+  color-scheme: dark;
+}
+
+.slope-settings *,
+.slope-settings *::before,
+.slope-settings *::after {
+  box-sizing: border-box;
+}
+
+.slope-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.slope-gear {
+  position: fixed;
+  z-index: 1000;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid var(--slope-color);
+  border-radius: 0;
+  background: var(--slope-ground);
+  color: var(--slope-color);
+  cursor: pointer;
+}
+
+.slope-gear svg {
+  transition: transform 0.25s ease;
+}
+
+.slope-gear[aria-expanded="true"] svg {
+  transform: rotate(45deg);
+}
+
+.slope-gear:hover,
+.slope-gear[aria-expanded="true"] {
+  background: var(--slope-color);
+  color: #000;
+}
+
+.slope-settings button:focus-visible,
+.slope-settings input:focus-visible {
+  outline: 2px solid var(--slope-ink);
+  outline-offset: 2px;
+}
+
+.slope-panel {
+  position: fixed;
+  z-index: 1000;
+  top: calc(66px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(296px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  max-height: calc(100% - 78px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  padding: 16px 18px 18px;
+  border: 2px solid var(--slope-color);
+  background: var(--slope-ground);
+  box-shadow: 0 0 24px -6px var(--slope-color);
+  font-size: 13px;
+  line-height: 1.3;
+  animation: slope-panel-in 0.14s ease-out;
+  transform-origin: top right;
+}
+
+.slope-panel[hidden] {
+  display: none;
+}
+
+@keyframes slope-panel-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.slope-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.slope-panel-title {
+  margin: 0;
+  color: var(--slope-color);
+  font-family: var(--slope-font);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.slope-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 2px solid var(--slope-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--slope-ink);
+  cursor: pointer;
+}
+
+.slope-close:hover {
+  border-color: var(--slope-ink);
+}
+
+.slope-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slope-label {
+  margin: 0;
+  color: var(--slope-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.slope-swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.slope-swatch {
+  aspect-ratio: 1;
+  max-width: 100%;
+  padding: 4px;
+  border: 2px solid var(--slope-line);
+  border-radius: 0;
+  background: #000;
+  cursor: pointer;
+}
+
+.slope-swatch span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(var(--swatch), var(--swatch)) center / 100% 3px no-repeat,
+    linear-gradient(var(--swatch), var(--swatch)) center / 3px 100% no-repeat,
+    color-mix(in srgb, var(--swatch) 30%, #000);
+  border: 2px solid var(--swatch);
+}
+
+.slope-swatch:hover {
+  border-color: var(--slope-muted);
+}
+
+.slope-swatch[aria-pressed="true"] {
+  border-color: var(--slope-ink);
+}
+
+.slope-swatch[aria-pressed="true"] span {
+  background: var(--swatch);
+}
+
+.slope-readout {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-readout-hex {
+  color: var(--slope-muted);
+}
+
+.slope-rows {
+  gap: 0;
+  border-top: 2px solid var(--slope-line);
+}
+
+.slope-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  border-bottom: 2px solid var(--slope-line);
+  cursor: pointer;
+}
+
+.slope-row input[type="color"] {
+  width: 48px;
+  height: 28px;
+  padding: 2px;
+  border: 2px solid var(--slope-ink);
+  border-radius: 0;
+  background: #000;
+  cursor: pointer;
+}
+
+.slope-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.slope-row input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 0;
+}
+
+.slope-row input[type="color"]::-moz-color-swatch {
+  border: 0;
+  border-radius: 0;
+}
+
+.slope-row input[type="checkbox"] {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 26px;
+  margin: 0;
+  border: 2px solid var(--slope-muted);
+  background: #000;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.slope-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: var(--slope-muted);
+  transition: transform 0.15s ease;
+}
+
+.slope-row input[type="checkbox"]:checked {
+  border-color: var(--slope-color);
+}
+
+.slope-row input[type="checkbox"]:checked::after {
+  background: var(--slope-color);
+  transform: translateX(22px);
+}
+
+.slope-reset {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 2px solid var(--slope-color);
+  border-radius: 0;
+  background: transparent;
+  color: var(--slope-color);
+  font-family: var(--slope-font);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.slope-reset:hover {
+  background: var(--slope-color);
+  color: #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slope-panel {
+    animation: none;
+  }
+
+  .slope-gear svg,
+  .slope-row input[type="checkbox"]::after {
+    transition: none;
+  }
+}
