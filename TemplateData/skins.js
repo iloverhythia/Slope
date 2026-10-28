@@ -4,10 +4,14 @@
  * Skins are bought with the gems collected on the track. The equipped skin
  * is drawn in place of the game's own ball (SlopeGame.paintBall), on the
  * game's ball mesh with a pattern shader, so it rolls, lights and hides
- * behind walls exactly like the original. The track colour setting tints the
- * whole picture, skins included, so the shop previews use the same tint.
+ * behind walls exactly like the original. Each skin also has its own colour
+ * for the ball's speed-up trail (SlopeGame.paintTrail): the game's trail,
+ * recoloured, so it still only appears on speed up. The track colour
+ * setting tints the whole picture, skins included, so the shop previews use
+ * the same tint.
  *
- * The shop opens from the gem counter in the HUD and from the Career screen.
+ * The shop opens from the game's Shop menu button, the gem counter in the HUD
+ * and the Career screen.
  *
  *   SlopeShop.open(returnFocusTo)
  *   SlopeShop.skins            the skin list
@@ -66,18 +70,30 @@
 
   // --- Skins -----------------------------------------------------------------
 
+  // trail: the colour of the ball's speed-up trail ("rainbow" cycles along
+  // it); Classic keeps the game's own trail.
   var SKINS = [
-    { id: "classic", name: "Classic", price: 0, pattern: 0 },
-    { id: "stripes", name: "Stripes", price: 5, pattern: 1 },
-    { id: "dots", name: "Dots", price: 10, pattern: 2, points: fibonacci(42, 0) },
-    { id: "checker", name: "Checker", price: 15, pattern: 3 },
-    { id: "cube", name: "Cube", price: 20, pattern: 4 },
-    { id: "spiral", name: "Spiral", price: 25, pattern: 5 },
-    { id: "geo", name: "Geo", price: 30, pattern: 6, points: geodesic() },
-    { id: "football", name: "Football", price: 40, pattern: 7, points: football(), split: 12 },
-    { id: "magma", name: "Magma", price: 50, pattern: 8, points: fibonacci(30, 0.35) },
-    { id: "rainbow", name: "Rainbow", price: 60, pattern: 9 },
-    { id: "gold", name: "Gold", price: 75, pattern: 10 }
+    { id: "classic", name: "Classic", price: 0, pattern: 0, trail: null },
+    { id: "stripes", name: "Stripes", price: 5, pattern: 1, trail: [1.0, 0.15, 0.1] },
+    { id: "dots", name: "Dots", price: 10, pattern: 2, points: fibonacci(42, 0), trail: [0.1, 1.0, 1.0] },
+    { id: "checker", name: "Checker", price: 15, pattern: 3, trail: [1.0, 1.0, 1.0] },
+    { id: "cube", name: "Cube", price: 20, pattern: 4, trail: [0.2, 0.45, 1.0] },
+    { id: "spiral", name: "Spiral", price: 25, pattern: 5, trail: [1.0, 0.2, 0.85] },
+    { id: "basketball", name: "Basketball", price: 30, pattern: 11, trail: [1.0, 0.5, 0.1] },
+    { id: "tennis", name: "Tennis", price: 30, pattern: 12, trail: [0.85, 1.0, 0.2] },
+    { id: "geo", name: "Geo", price: 30, pattern: 6, points: geodesic(), trail: [0.7, 0.9, 1.0] },
+    { id: "watermelon", name: "Watermelon", price: 35, pattern: 15, trail: [1.0, 0.3, 0.4] },
+    { id: "football", name: "Football", price: 40, pattern: 7, points: football(), split: 12, trail: [0.95, 0.95, 0.95] },
+    { id: "eightball", name: "8-Ball", price: 45, pattern: 13, trail: [0.85, 0.85, 1.0] },
+    { id: "eyeball", name: "Eyeball", price: 45, pattern: 14, trail: [0.25, 0.55, 1.0] },
+    { id: "magma", name: "Magma", price: 50, pattern: 8, points: fibonacci(30, 0.35), trail: [1.0, 0.45, 0.05] },
+    { id: "moon", name: "Moon", price: 55, pattern: 17, points: fibonacci(26, 0.5), trail: [0.8, 0.8, 0.85] },
+    { id: "ice", name: "Ice", price: 60, pattern: 20, points: fibonacci(22, 0.45), trail: [0.6, 0.9, 1.0] },
+    { id: "rainbow", name: "Rainbow", price: 60, pattern: 9, trail: "rainbow" },
+    { id: "earth", name: "Earth", price: 70, pattern: 16, trail: [0.2, 0.55, 1.0] },
+    { id: "gold", name: "Gold", price: 75, pattern: 10, trail: [1.0, 0.75, 0.25] },
+    { id: "disco", name: "Disco", price: 80, pattern: 19, trail: "rainbow" },
+    { id: "galaxy", name: "Galaxy", price: 100, pattern: 18, trail: [0.6, 0.3, 1.0] }
   ];
 
   SKINS.forEach(function (skin) {
@@ -133,6 +149,15 @@
     "float line(float d, float w) { float a = fwidth(d) + 1e-4; return 1.0 - smoothstep(w - a, w + a, d); }",
     "float fill(float x) { float a = fwidth(x) + 1e-4; return smoothstep(-a, a, x); }",
     "vec3 hue(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); }",
+    "float hash3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }",
+    "float hash1(float n) { return fract(sin(n * 12.9898) * 43758.5453); }",
+    "float noise3(vec3 x) {",
+    "  vec3 i = floor(x), f = fract(x);",
+    "  f = f * f * (3.0 - 2.0 * f);",
+    "  return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),",
+    "             mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);",
+    "}",
+    "float fbm(vec3 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { v += a * noise3(p); p *= 2.03; a *= 0.5; } return v; }",
     "",
     "// Distance to four great circles through the poles, 45 degrees apart.",
     "float meridians(vec3 p) {",
@@ -199,13 +224,78 @@
     "    float slice = floor((lon + PI) / (PI / 4.0));",
     "    float gap = max(line(meridians(p), 0.03), line(abs(p.y), 0.03));",
     "    col = hue(slice / 8.0 + uTime * 0.05) * shade * (1.0 - gap);",
-    "  } else {", // Gold
+    "  } else if (uPattern == 10) {", // Gold
     "    vec3 r = reflect(-v, n);",
     "    vec3 sky = mix(vec3(0.2, 0.14, 0.05), vec3(1.0, 0.96, 0.85), smoothstep(-0.15, 0.6, r.y));",
     "    sky += vec3(0.7) * exp(-abs(r.y - 0.05) * 14.0);",
     "    vec3 gold = vec3(1.0, 0.74, 0.28);",
     "    col = gold * sky * (0.75 + 0.25 * max(dot(n, uLight), 0.0)) + gold * 0.4 * pow(1.0 - facing, 4.0);",
     "    col *= 1.0 - 0.6 * line(min(abs(p.y), abs(p.x)), 0.02);",
+    "  } else if (uPattern == 11) {", // Basketball
+    "    float d = min(min(abs(p.x), abs(p.y)), abs(abs(p.z) - 0.72));",
+    "    vec3 leather = vec3(0.95, 0.42, 0.08) * (0.88 + 0.12 * noise3(p * 60.0));",
+    "    col = leather * shade * (1.0 - 0.92 * line(d, 0.022));",
+    "  } else if (uPattern == 12) {", // Tennis
+    "    vec3 felt = vec3(0.8, 1.0, 0.22) * (0.85 + 0.15 * noise3(p * 45.0));",
+    "    col = mix(felt, vec3(0.97), line(abs(lat - 0.5 * sin(2.0 * lon)), 0.065)) * shade;",
+    "  } else if (uPattern == 13) {", // 8-Ball
+    "    float dz = distance(p, vec3(0.0, 0.0, 1.0));",
+    "    float disc = 1.0 - fill(dz - 0.42);",
+    "    float r1 = length(p.xy - vec2(0.0, 0.105)), r2 = length(p.xy - vec2(0.0, -0.095));",
+    "    float eight = line(min(abs(r1 - 0.07), abs(r2 - 0.085)), 0.022) * disc;",
+    "    vec3 base = mix(vec3(0.02), vec3(0.95), disc) * (1.0 - eight);",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 40.0);",
+    "    col = base * shade + vec3(spec * 0.8) + vec3(0.12) * pow(1.0 - facing, 3.0);",
+    "  } else if (uPattern == 14) {", // Eyeball
+    "    float dz = distance(p, vec3(0.0, 0.0, 1.0));",
+    "    float ang = atan(p.y, p.x);",
+    "    vec3 iris = mix(vec3(0.05, 0.2, 0.6), vec3(0.3, 0.65, 1.0), 0.6 + 0.4 * sin(ang * 36.0)) * (1.0 - 0.5 * smoothstep(0.3, 0.42, dz));",
+    "    vec3 white = vec3(0.96, 0.94, 0.9) * (1.0 - 0.35 * line(abs(fbm(p * 5.0) - 0.5), 0.012) * smoothstep(0.2, -0.6, p.z));",
+    "    vec3 base = mix(white, iris, 1.0 - fill(dz - 0.42));",
+    "    base = mix(base, vec3(0.01), 1.0 - fill(dz - 0.17));",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 60.0);",
+    "    col = base * shade + vec3(spec);",
+    "  } else if (uPattern == 15) {", // Watermelon
+    "    float stripe = fill(sin(lon * 7.0 + 0.5 * sin(lat * 5.0) + 0.3 * sin(lat * 11.0)) - 0.15);",
+    "    col = mix(vec3(0.05, 0.32, 0.07), vec3(0.4, 0.78, 0.3), stripe) * shade;",
+    "  } else if (uPattern == 16) {", // Earth
+    "    float h = fbm(p * 2.2 + 3.1);",
+    "    vec3 sea = mix(vec3(0.02, 0.12, 0.45), vec3(0.05, 0.3, 0.75), smoothstep(0.3, 0.52, h));",
+    "    vec3 land = mix(vec3(0.12, 0.5, 0.14), vec3(0.6, 0.5, 0.28), smoothstep(0.55, 0.75, fbm(p * 4.0 + 9.0)));",
+    "    vec3 base = mix(sea, land, fill(h - 0.52));",
+    "    base = mix(base, vec3(0.95), fill(abs(p.y) - 0.86 + 0.05 * noise3(p * 8.0)));",
+    "    col = base * shade + vec3(0.3, 0.6, 1.0) * pow(1.0 - facing, 3.0) * 0.6;",
+    "  } else if (uPattern == 17) {", // Moon
+    "    vec3 c = cells(p);",
+    "    float d = sqrt(max(0.0, 2.0 - 2.0 * c.x));",
+    "    float r = 0.1 + 0.14 * hash1(c.z);",
+    "    float crater = hash1(c.z + 7.0) > 0.25 ? 1.0 : 0.0;",
+    "    float g = 0.55 * (0.8 + 0.35 * fbm(p * 4.0));",
+    "    g *= 1.0 - 0.25 * crater * (1.0 - fill(d - r));",
+    "    g += 0.2 * crater * line(d - r, 0.02);",
+    "    col = vec3(g) * shade;",
+    "  } else if (uPattern == 18) {", // Galaxy
+    "    float neb = fbm(p * 3.0);",
+    "    vec3 base = mix(vec3(0.03, 0.0, 0.1), vec3(0.4, 0.1, 0.65), smoothstep(0.4, 0.8, neb));",
+    "    base += vec3(0.1, 0.35, 0.7) * smoothstep(0.55, 0.9, fbm(p * 5.0 + 7.0));",
+    "    vec3 q = p * 26.0;",
+    "    float star = step(0.92, hash3(floor(q))) * (1.0 - smoothstep(0.0, 0.3, length(fract(q) - 0.5)));",
+    "    col = base + vec3(star) * (0.7 + 0.3 * sin(uTime * 3.0 + hash3(floor(q)) * 40.0));",
+    "  } else if (uPattern == 19) {", // Disco: mirror tiles
+    "    float rows = 14.0, cols = 28.0;",
+    "    vec2 uv = vec2((lon + PI) / (2.0 * PI) * cols, (lat + PI * 0.5) / PI * rows);",
+    "    vec2 id = floor(uv), f = fract(uv);",
+    "    float grout = line(min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)), 0.06);",
+    "    float k = hash1(id.x * 31.0 + id.y * 7.0);",
+    "    float flash = 0.55 + 0.45 * sin(uTime * 4.0 + k * 30.0);",
+    "    vec3 r = reflect(-v, n);",
+    "    vec3 mirror = vec3(0.75, 0.8, 0.9) * (0.4 + 0.6 * k) * (0.6 + 0.6 * smoothstep(-0.2, 0.8, r.y)) * flash;",
+    "    col = mirror * (1.0 - 0.85 * grout);",
+    "  } else {", // Ice
+    "    vec3 c = cells(p);",
+    "    vec3 base = mix(vec3(0.45, 0.7, 0.9), vec3(0.75, 0.9, 1.0), noise3(p * 6.0));",
+    "    base = mix(base, vec3(0.97, 1.0, 1.0), line(c.x - c.y, 0.01) * 0.8);",
+    "    col = base * shade + vec3(0.6, 0.85, 1.0) * pow(1.0 - facing, 2.5) * 0.7;",
     "  }",
     "  // A faint rim keeps the round shape visible where the body is black.",
     "  col += vec3(0.1) * pow(1.0 - facing, 2.5) * step(max(col.r, max(col.g, col.b)), 0.04);",
@@ -304,6 +394,107 @@
     }
     inGame.use(equipped, ball.vp, ball.o2w, cameraPosition(ball.vp), LIGHT_GAME, performance.now() / 1000);
     ball.draw();
+    return true;
+  });
+
+  // --- The speed-up trail ----------------------------------------------------------
+  // The game's own trail, drawn with a copy of the game's trail shader in the
+  // skin's colour: same shape, same fade, and it still only shows when the
+  // game shows it (on speed up).
+
+  var TRAIL_OUTPUT = "SV_Target0 = u_xlat10_0 * vs_COLOR0;";
+  var TINT_FUNCTION = [
+    "uniform mediump vec3 uSlopeTint;",
+    "uniform mediump float uSlopeRainbow;",
+    "uniform highp float uSlopeTime;",
+    "mediump vec4 slopeTint(mediump vec4 c, highp vec2 uv) {",
+    "  mediump float k = max(c.r, max(c.g, c.b));",
+    "  mediump vec3 tint = uSlopeRainbow > 0.5",
+    "    ? clamp(abs(mod((uv.x * 1.5 - uSlopeTime * 0.5) * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0)",
+    "    : uSlopeTint;",
+    "  return vec4(tint * k, c.a);",
+    "}"
+  ].join("\n");
+  var trailFailed = false;
+
+  function tintedTrail(gl, unity) {
+    if (unity.__slopeTint !== undefined) return unity.__slopeTint;
+    unity.__slopeTint = null;
+    var src = unity.__slopeSources;
+    if (!src || src[1].indexOf(TRAIL_OUTPUT) === -1) return null;
+    var fs = src[1].replace("void main()", TINT_FUNCTION + "\nvoid main()")
+      .replace(TRAIL_OUTPUT, "SV_Target0 = slopeTint(u_xlat10_0 * vs_COLOR0, vs_TEXCOORD0.xy);");
+    function shader(type, text) {
+      var sh = gl.createShader(type);
+      gl.shaderSource(sh, text);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+      return sh;
+    }
+    var program = gl.createProgram();
+    gl.attachShader(program, shader(gl.VERTEX_SHADER, src[0]));
+    gl.attachShader(program, shader(gl.FRAGMENT_SHADER, fs));
+    // Same attribute slots as the game's program, so the game's vertex data lines up.
+    var i, n = gl.getProgramParameter(unity, gl.ACTIVE_ATTRIBUTES);
+    for (i = 0; i < n; i++) {
+      var attrib = gl.getActiveAttrib(unity, i);
+      gl.bindAttribLocation(program, gl.getAttribLocation(unity, attrib.name), attrib.name);
+    }
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+    // The game's uniforms, copied over before each draw.
+    var uniforms = [];
+    n = gl.getProgramParameter(unity, gl.ACTIVE_UNIFORMS);
+    for (i = 0; i < n; i++) {
+      var info = gl.getActiveUniform(unity, i);
+      var base = info.name.replace(/\[0\]$/, "");
+      for (var j = 0; j < info.size; j++) {
+        var name = info.size > 1 ? base + "[" + j + "]" : info.name;
+        var from = gl.getUniformLocation(unity, name), to = gl.getUniformLocation(program, name);
+        if (from && to) uniforms.push({ type: info.type, from: from, to: to });
+      }
+    }
+    unity.__slopeTint = {
+      program: program,
+      uniforms: uniforms,
+      tint: gl.getUniformLocation(program, "uSlopeTint"),
+      rainbow: gl.getUniformLocation(program, "uSlopeRainbow"),
+      time: gl.getUniformLocation(program, "uSlopeTime")
+    };
+    return unity.__slopeTint;
+  }
+
+  function copyUniform(gl, unity, u) {
+    var v = gl.getUniform(unity, u.from);
+    switch (u.type) {
+      case gl.FLOAT: gl.uniform1f(u.to, v); break;
+      case gl.FLOAT_VEC2: gl.uniform2fv(u.to, v); break;
+      case gl.FLOAT_VEC3: gl.uniform3fv(u.to, v); break;
+      case gl.FLOAT_VEC4: gl.uniform4fv(u.to, v); break;
+      case gl.FLOAT_MAT4: gl.uniformMatrix4fv(u.to, false, v); break;
+      default: gl.uniform1i(u.to, typeof v === "boolean" ? +v : v); // samplers, ints, bools
+    }
+  }
+
+  game.paintTrail(function (t) {
+    var trail = equipped.trail;
+    if (!trail || trailFailed) return false;
+    var gl = t.gl, tinted;
+    try {
+      tinted = tintedTrail(gl, t.program);
+    } catch (e) {
+      trailFailed = true; // keep the game's own trail
+      console.warn("Slope skins: can't recolour the trail", e);
+      return false;
+    }
+    if (!tinted) return false;
+    gl.useProgram(tinted.program);
+    tinted.uniforms.forEach(function (u) { copyUniform(gl, t.program, u); });
+    var rainbow = trail === "rainbow";
+    gl.uniform3fv(tinted.tint, rainbow ? [1, 1, 1] : trail);
+    gl.uniform1f(tinted.rainbow, rainbow ? 1 : 0);
+    gl.uniform1f(tinted.time, performance.now() / 1000);
+    t.draw();
     return true;
   });
 
@@ -523,6 +714,8 @@
     else if (els.screen.contains(document.activeElement)) document.activeElement.blur();
     openedFrom = null;
   }
+
+  game.on("shop", function () { open(null); });
 
   window.SlopeShop = { open: open, skins: SKINS };
   window.SlopeUI.ready(build);

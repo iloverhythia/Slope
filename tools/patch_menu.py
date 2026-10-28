@@ -1,4 +1,5 @@
-"""Add a Career button to Slope's main menu and send signals the page can read.
+"""Add Career, Adventure and Shop buttons to Slope's main menu and send
+signals the page can read.
 
 PlayMaker's log actions print nothing in this build, so the signals use the
 game's ApplicationOpenUrl action. Unity 2017 WebGL implements it as
@@ -12,6 +13,10 @@ Edits the EventManager PlayMakerFSM (level0, path 283):
     with tighter spacing so five buttons fit
   - new event CareerPressed -> new state "Career Screen" that signals
     #slope-career and returns to the menu
+  - patch_more(): Adventure and Shop buttons after Play (states "Adventure
+    Screen" / "Shop Screen" signal #slope-adventure / #slope-shop), every
+    menu button in the compact "menubutton" style, and #slope-menu whenever
+    the menu is shown
 """
 import struct
 import pmfsm
@@ -201,6 +206,104 @@ def patch(raw):
     for nm, sys_, glob in events: w.s(nm); w.i32(sys_); w.i32(glob)
     fsm['rest'] = bytes(w.b) + tail
     log.append('Career Screen state + CareerPressed event')
+    for st in fsm['states']:
+        validate(st['actions'], st['name'])
+    return pmfsm.serialize(fsm), log
+
+
+# --- Adventure and Shop buttons ------------------------------------------------
+# Seven buttons need a smaller button style (tools/patch_skin.py adds
+# "menubutton") and tighter spacing to fit above the download button.
+# Both menu states also signal #slope-menu when they're shown.
+
+MENU_STYLE = 'menubutton'
+MENU_SPACE_COMPACT = 3.0
+NEW_BUTTONS = [  # (label, event, state, page signal), in menu order after Play
+    ('Adventure', 'AdventurePressed', 'Adventure Screen', '#slope-adventure'),
+    ('Shop', 'ShopPressed', 'Shop Screen', '#slope-shop'),
+]
+
+
+def register_events(fsm, names):
+    r = pmfsm.R(fsm['rest']); n = r.i32(); events = [(r.s(), r.i32(), r.i32()) for _ in range(n)]
+    tail = fsm['rest'][r.p:]
+    events += [(nm, 0, 0) for nm in names]
+    events.sort(key=lambda e: (e[0] != 'FINISHED', e[0]))
+    w = pmfsm.W(); w.i32(len(events))
+    for nm, sys_, glob in events: w.s(nm); w.i32(sys_); w.i32(glob)
+    fsm['rest'] = bytes(w.b) + tail
+
+
+def signal_state(fsm, name, url, description, offset):
+    ad = empty_action_data()
+    insert_action(ad, 0, OPEN_URL, 'Slope page: open ' + name, OPEN_URL_HASH, open_url_params(url))
+    menu = find_state(fsm, 'Name entry screen NotLoggedIn')
+    fsm['states'].append(dict(name=name, description=description,
+                              colorIndex=0, position=[menu['position'][0] + 220, menu['position'][1] + offset, 120, 32],
+                              isBreakpoint=0, isSequence=0, hideUnused=0,
+                              transitions=[dict(event='FINISHED', isSystemEvent=1, isGlobal=0,
+                                                toState='Name entry screen NotLoggedIn', linkStyle=0,
+                                                linkConstraint=0, colorIndex=0)],
+                              actions=ad))
+
+
+def main_area(a):
+    """Action indexes of the main menu column (BeginArea at left 0.33 .. EndArea)."""
+    for i, n in enumerate(a['actionNames']):
+        if n.endswith('.GUILayoutBeginArea'):
+            kk = {a['paramName'][k]: k for k in pmfsm.action_params(a, i)}
+            if abs(struct.unpack_from('<f', a['byteData'], a['paramDataPos'][kk['left']])[0] - 0.33) < 0.01:
+                end = next(j for j in range(i, len(a['actionNames'])) if a['actionNames'][j].endswith('.GUILayoutEndArea'))
+                return range(i, end)
+    raise LookupError('main menu area')
+
+
+def patch_more(raw):
+    fsm = pmfsm.parse(raw)
+    if any(s['name'] == 'Adventure Screen' for s in fsm['states']):
+        return raw, ['already patched']
+    log = []
+    for sname in MENU_STATES:
+        st = find_state(fsm, sname); a = st['actions']
+        career = next(i for i, n in enumerate(a['actionNames'])
+                      if n.endswith('.GUILayoutButton') and a['customNames'][i] == 'GUILayout Button Career')
+        space_i = career - 1
+        assert a['actionNames'][space_i].endswith('.GUILayoutSpace')
+        cp = {a['paramName'][k]: k for k in pmfsm.action_params(a, career)}
+        def item(pname):
+            k = cp[pname]; return a[param_group(a, k)][a['paramDataPos'][k]]
+        store = a['byteData'][a['paramDataPos'][cp['storeButtonState']]:][:a['paramByteDataSize'][cp['storeButtonState']]]
+        space_k = pmfsm.action_params(a, space_i)[0]
+        space = [('space', 15, a['byteData'][a['paramDataPos'][space_k]:][:a['paramByteDataSize'][space_k]])]
+        button_name, button_hash = a['actionNames'][career], a['actionHashCodes'][career]
+        space_name, space_hash = a['actionNames'][space_i], a['actionHashCodes'][space_i]
+        # Insert in reverse so they end up in order right before Career's space.
+        for label, event, _, _ in reversed(NEW_BUTTONS):
+            insert_action(a, space_i, button_name, 'GUILayout Button ' + label, button_hash, [
+                ('sendEvent', 23, event.encode()), ('storeButtonState', 17, store),
+                ('image', 33, item('image')), ('text', 18, fsm_string(label)),
+                ('tooltip', 18, item('tooltip')), ('style', 18, item('style')),
+                ('layoutOptions', 12, 'HutongGames.PlayMaker.LayoutOption')])
+            insert_action(a, space_i, space_name, '', space_hash, space)
+        # Every button in the column gets the compact style; gaps get smaller.
+        for i in main_area(a):
+            n = a['actionNames'][i]
+            ks = pmfsm.action_params(a, i)
+            if n.endswith('.GUILayoutButton'):
+                k = next(k for k in ks if a['paramName'][k] == 'style')
+                a['fsmStringParams'][a['paramDataPos'][k]] = fsm_string(MENU_STYLE)
+            elif n.endswith('.GUILayoutSpace'):
+                set_float(a, ks[0], MENU_SPACE_COMPACT)
+        # Tell the page whenever the menu is shown.
+        insert_action(a, 0, OPEN_URL, 'Slope page: menu shown', OPEN_URL_HASH, open_url_params('#slope-menu'))
+        for label, event, state, _ in NEW_BUTTONS:
+            st['transitions'].append(dict(event=event, isSystemEvent=0, isGlobal=0, toState=state,
+                                          linkStyle=0, linkConstraint=0, colorIndex=0))
+        log.append(sname + ': ' + ', '.join(b[0] for b in NEW_BUTTONS) + ' buttons, compact style, menu signal')
+    for n, (label, event, state, url) in enumerate(NEW_BUTTONS):
+        signal_state(fsm, state, url, 'Asks the web page to open its %s screen.' % label, 50 * (n + 1))
+    register_events(fsm, [b[1] for b in NEW_BUTTONS])
+    log.append('states + events: ' + ', '.join(b[2] for b in NEW_BUTTONS))
     for st in fsm['states']:
         validate(st['actions'], st['name'])
     return pmfsm.serialize(fsm), log

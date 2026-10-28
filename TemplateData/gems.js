@@ -16,6 +16,7 @@
  *   SlopeGems.list()         gems still on the track (slope coordinates)
  *   SlopeGems.iconSvg(w, h)  the dot-matrix gem icon, as SVG markup
  *   SlopeGems.currentRun()   { gems, seconds } for the run in progress
+ *   SlopeGems.floor()        height of the floor the ball rolls on (slope h), or null
  */
 (function () {
   "use strict";
@@ -75,6 +76,7 @@
 
   function spawnAhead(frame) {
     var ball = frame.ball;
+    var adventure = window.SlopeAdventure;
     // Never place a gem close enough to be seen appearing.
     nextS = Math.max(nextS === null ? -Infinity : nextS, ball.s + 30);
     for (var guard = 0; guard < 8; guard++) {
@@ -86,6 +88,7 @@
       var line = Math.random() < 0.3 ? 3 : 1;
       for (var i = 0; i < line; i++) {
         if (i && !trackRange(frame.pieces, s + i * 3.5)) break;
+        if (adventure && !adventure.isClear(s + i * 3.5)) break; // never inside a level's obstacle
         gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI });
       }
       nextS = s + GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN) + (line - 1) * 3.5;
@@ -134,8 +137,10 @@
     if (lastBall && ball.s < lastBall.s - 20) reset(); // the ball was moved back
     // The floor is the track under the ball. Rolling on it, the ball keeps its
     // height above the slope; on the starting ramp or in the air the height
-    // changes as it moves, so the last floor is kept until it lands.
-    var level = lastBall && Math.abs(ball.h - lastBall.h) < 0.02 + 0.05 * Math.abs(ball.s - lastBall.s);
+    // changes as it moves, so the last floor is kept until it lands. A ball
+    // that is barely moving (waiting at the start) tells us nothing.
+    var moved = lastBall ? ball.s - lastBall.s : 0;
+    var level = moved > 0.05 && Math.abs(ball.h - lastBall.h) < 0.02 + 0.05 * moved;
     grounded = level ? grounded + 1 : 0;
     if (grounded > 3) floorH = ball.h - BALL_RADIUS;
 
@@ -313,6 +318,7 @@
     list: function () {
       return gems.map(function (g) { return { s: g.s, x: g.x, h: g.h }; });
     },
+    floor: function () { return floorH; },
     currentRun: function () {
       return { gems: run.gems, seconds: run.start ? (performance.now() - run.start) / 1000 : 0 };
     }

@@ -1,0 +1,148 @@
+/* Adventure: the level grid, the level result and the in-run progress panel,
+   on the Career screen's frame (career.css). Tokens come from settings.css. */
+
+.slope-adventure-inner {
+  width: min(760px, 100%);
+}
+
+.slope-adventure-note,
+.slope-adventure-status {
+  color: var(--slope-dim);
+  font-size: 15px;
+  text-align: center;
+}
+
+.slope-adventure-status:empty {
+  display: none;
+}
+
+.slope-adventure-continue {
+  align-self: center;
+  min-height: 56px;
+  padding: 0 32px;
+  font-size: 28px;
+}
+
+.slope-levels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slope-level-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 84px;
+  padding: 10px 6px;
+}
+
+.slope-level-num {
+  font-size: 30px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-level-kind {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 21px;
+  font-family: var(--slope-text);
+  font-size: 13px;
+  line-height: 1.1;
+  text-align: center;
+}
+
+/* The next level to play is filled in, like a selected option. */
+.slope-level-tile.is-next {
+  background: var(--slope-color);
+  color: var(--slope-ground);
+}
+
+.slope-level-tile.is-next:hover {
+  background: var(--slope-ground);
+}
+
+.slope-adventure .slope-level-tile:disabled,
+.slope-adventure .slope-level-tile:disabled:hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: not-allowed;
+}
+
+.slope-levels-more {
+  min-height: 48px;
+  padding: 0 24px;
+}
+
+/* Level result */
+
+.slope-result-inner {
+  width: min(520px, 100%);
+  margin-block: auto;
+  padding-block: 12vh 32px;
+}
+
+.slope-result-title {
+  font-size: clamp(36px, 7vw, 60px);
+}
+
+.slope-adventure-result.is-won .slope-result-title {
+  padding: 10px 12px;
+  background: var(--slope-color);
+  color: var(--slope-ground);
+}
+
+.slope-result-line,
+.slope-result-stats {
+  font-size: 16px;
+  text-align: center;
+}
+
+.slope-result-stats {
+  color: var(--slope-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* In-run progress, under the HUD row (where the run summary sits). */
+
+.slope-adventure-hud {
+  position: fixed;
+  z-index: 1000;
+  top: calc(66px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(260px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  padding: 10px 14px 12px;
+  background: var(--slope-ground);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  pointer-events: none;
+}
+
+.slope-adventure-hud[hidden] {
+  display: none;
+}
+
+.slope-adventure-hud p {
+  margin: 0;
+}
+
+.slope-adventure-hud-title {
+  font-family: var(--slope-display);
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.slope-adventure-hud-bar {
+  gap: 3px;
+  height: 10px;
+}

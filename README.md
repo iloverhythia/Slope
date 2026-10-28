@@ -10,7 +10,8 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 - **Sharper graphics**: the game is drawn at full screen resolution or higher, with antialiasing, without changing its menus (`TemplateData/quality.js`).
 - **Instant steering**: the ball moves sideways the moment a key is pressed and stops when it is released.
 - **Gems** on the track, drawn as part of the game's 3D scene. Roll through them to collect them.
-- **Skin shop**: 10 ball skins to buy with gems. Open it from the gem counter (top left) or the Career screen.
+- **Skin shop** (Shop button in the main menu, the gem counter, or the Career screen): 20 ball skins to buy with gems. Each skin has its own color for the ball's speed-up trail, which still only appears on speed up.
+- **Adventure** button in the main menu: an endless grid of levels. Reach a level's finish line to unlock the next one. Every level has its own obstacles to avoid (blocks, walls with a gap, sliders, lasers, rising pillars, spinners); levels 1 to 6 bring in one new obstacle each, later levels mix them and get denser and faster.
 - **Career** button in the main menu: profile, level and stats. Every run earns score x 10 XP.
 - In the Claude artifact version you can log in with Claude so your Career follows your account.
 
@@ -18,11 +19,11 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 
 The game is a compiled Unity build, so new behavior is added two ways:
 
-- Page scripts in `TemplateData/` read what the game draws and draw into it (`game-bridge.js`, `gems.js`, `skins.js`, `profile.js`, `career.js`, `settings.js`).
+- Page scripts in `TemplateData/` read what the game draws and draw into it (`game-bridge.js`, `gems.js`, `skins.js`, `adventure.js`, `profile.js`, `career.js`, `settings.js`). They can also send events to the game's EventManager state machine (start a run, crash the ball, go back to the menu).
 - Small edits to the game's PlayMaker state machines in `Build/slope_data.unityweb`, made with the scripts in `tools/`:
   - steering sets the ball's sideways speed instead of pushing it with a force
-  - the main menu gets the Career button
-  - the game signals run start, final score and Career clicks to the page through the URL hash
+  - the main menu gets Adventure, Shop and Career buttons, in a slightly smaller button style (added to the game's GUI skin) so seven buttons fit
+  - the game signals run start, final score, menu button clicks and "menu shown" to the page through the URL hash
 
 To apply the edits to an original `slope_data.unityweb` (safe to run again):
 

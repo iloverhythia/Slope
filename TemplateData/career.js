@@ -226,7 +226,9 @@
   game.on("runend", function (e) {
     var run = window.SlopeGems ? window.SlopeGems.currentRun() : { gems: 0, seconds: 0 };
     var result = profile.recordRun({ score: e.score, gems: run.gems, seconds: run.seconds });
-    if (els.toast) showRunSummary(e.score, result, run.gems);
+    // Adventure levels show their own result screen.
+    var adventure = window.SlopeAdventure && window.SlopeAdventure.handlesRun();
+    if (els.toast && !adventure) showRunSummary(e.score, result, run.gems);
   });
 
   window.SlopeUI.ready(build);

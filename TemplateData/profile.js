@@ -1,5 +1,5 @@
 /*
- * Player profile: XP, level, gems, ball skins and run stats.
+ * Player profile: XP, level, gems, ball skins, Adventure progress and run stats.
  *
  * XP comes from score: every run earns score x 10 XP. Reaching level L takes
  * 50 * L * (L - 1) XP in total, so each level needs 100 XP more than the last.
@@ -14,6 +14,7 @@
  *   SlopeProfile.addGems(n)
  *   SlopeProfile.buySkin(id, price)   spends gems; true if bought (and equips it)
  *   SlopeProfile.equipSkin(id)
+ *   SlopeProfile.completeLevel(n)     Adventure level n beaten: unlocks n + 1
  *   SlopeProfile.onChange(fn)
  *   SlopeProfile.account           { available, signedIn, name, avatarUrl, error }
  *   SlopeProfile.signIn()          asks the viewer to allow Claude login
@@ -40,7 +41,7 @@
   };
 
   function blank() {
-    return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic" };
+    return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0 };
   }
 
   function clean(d) {
@@ -52,6 +53,7 @@
       else if (k === "skin") b.skin = isSkinId(d.skin) ? d.skin : "classic";
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
     });
+    b.advUnlocked = Math.max(1, Math.floor(b.advUnlocked));
     return b;
   }
 
@@ -153,6 +155,15 @@
     changed();
   }
 
+  function completeLevel(n) {
+    n = Math.floor(n);
+    if (!(n >= 1)) return;
+    data.advWins += 1;
+    data.advUnlocked = Math.max(data.advUnlocked, n + 1);
+    save();
+    changed();
+  }
+
   function merge(a, b) {
     return clean({
       xp: a.xp + b.xp,
@@ -164,6 +175,8 @@
       playSeconds: a.playSeconds + b.playSeconds,
       skins: a.skins.concat(b.skins.filter(function (id) { return a.skins.indexOf(id) === -1; })),
       skin: a.skin !== "classic" ? a.skin : b.skin,
+      advUnlocked: Math.max(a.advUnlocked, b.advUnlocked),
+      advWins: a.advWins + b.advWins,
       recent: a.recent.concat(b.recent).sort(function (x, y) { return (x.at || 0) - (y.at || 0); })
     });
   }
@@ -180,7 +193,7 @@
         return ref.get().then(function (snap) {
           var saved = snap.exists ? clean(snap.data()) : blank();
           var guest = readLocal();
-          var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0;
+          var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0 || guest.advUnlocked > 1;
           data = hasGuest ? merge(saved, guest) : saved;
           remote = { ref: ref };
           account.signedIn = true;
@@ -236,6 +249,7 @@
     addGems: addGems,
     buySkin: buySkin,
     equipSkin: equipSkin,
+    completeLevel: completeLevel,
     signIn: signIn,
     account: account,
     onChange: function (fn) { listeners.push(fn); fn(snapshot(), account); }

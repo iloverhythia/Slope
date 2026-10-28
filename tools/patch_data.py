@@ -14,6 +14,7 @@ import UnityPy
 import webdata
 import patch_steering
 import patch_menu
+import patch_skin
 
 def main(path):
     files = webdata.read(open(path, 'rb').read())
@@ -30,7 +31,11 @@ def main(path):
         elif key == ('resources.assets', 21):
             data, changed = patch_steering.patch_globals(o.get_raw_data()); o.set_raw_data(data); print('globals', changed)
         elif key == ('level0', 283):
-            data, log = patch_menu.patch(o.get_raw_data()); o.set_raw_data(data); print('EventManager', log)
+            data, log = patch_menu.patch(o.get_raw_data())
+            data, log2 = patch_menu.patch_more(data)
+            o.set_raw_data(data); print('EventManager', log + log2)
+        elif key == ('sharedassets0.assets', 448):
+            data, log = patch_skin.patch(o.get_raw_data()); o.set_raw_data(data); print('RetroGUISkin', log)
     bundle[1] = env.file.save(packer='original')
     open(path, 'wb').write(webdata.write(files))
 

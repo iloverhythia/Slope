@@ -6,6 +6,13 @@
  *   #slope-run-start      a run started
  *   #slope-score-<n>      the run ended with score n
  *   #slope-career         the Career menu button was pressed
+ *   #slope-adventure      the Adventure menu button was pressed
+ *   #slope-shop           the Shop menu button was pressed
+ *   #slope-menu           the main menu is shown
+ *
+ * The page can also send events to the game's EventManager state machine
+ * (SlopeGame.send), e.g. "resetPressed" starts a run from the menu or the
+ * score screen and "collide death" crashes the ball.
  *
  * Per frame, from the game's WebGL calls: the main camera's view-projection
  * matrix, the ball's position, and the sideways extent of the track pieces on
@@ -21,13 +28,19 @@
  * A ball painter draws the ball in place of the game: it gets the game's
  * WebGL context with the ball's mesh bound, the camera and the ball's
  * object-to-world matrix, and calls draw() after switching to its own
- * program. Returning false lets the game draw its own ball.
+ * program. Returning false lets the game draw its own ball. A trail painter
+ * does the same for the ball's speed-up trail (program is the game's trail
+ * program, with its shader sources in program.__slopeSources), so the trail
+ * keeps its shape and only shows when the game shows it.
  *
  * Load after quality.js and before the Unity loader creates the game canvas.
  *
- *   SlopeGame.on("runstart" | "runend" | "career" | "frame", handler)
+ *   SlopeGame.on("runstart" | "runend" | "career" | "adventure" | "shop" | "menu" | "frame", handler)
+ *   SlopeGame.send(eventName)      send an event to the game's EventManager
+ *   SlopeGame.inRun()              true while a run is going
  *   SlopeGame.on("scene", function ({ gl, vp }) { ... })   WebGL2 only
  *   SlopeGame.paintBall(function ({ gl, vp, o2w, draw }) { ... return true; })
+ *   SlopeGame.paintTrail(function ({ gl, program, draw }) { ... return true; })
  */
 (function () {
   "use strict";
@@ -40,6 +53,7 @@
 
   var handlers = {};
   var ballPainter = null;
+  var trailPainter = null;
   function on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); }
   function emit(name, data) {
     (handlers[name] || []).forEach(function (fn) {
@@ -59,15 +73,20 @@
 
   var inRun = false;
 
-  function readSignal() {
-    var m = /^#slope-(run-start|career|score-(\d+))$/.exec(location.hash);
+  // The game can send two signals in one frame (a screen state that returns
+  // straight to the menu), so each hashchange is read from its own new URL,
+  // not from the current hash.
+  function readSignal(e) {
+    var url = e && e.newURL ? e.newURL : location.href;
+    var hash = url.indexOf("#") === -1 ? "" : url.slice(url.indexOf("#"));
+    var m = /^#slope-(run-start|career|adventure|shop|menu|score-(\d+))$/.exec(hash);
     if (!m) return;
-    clearHash();
+    if (/^#slope-/.test(location.hash)) clearHash();
     if (m[1] === "run-start") {
       inRun = true;
       emit("runstart");
-    } else if (m[1] === "career") {
-      emit("career");
+    } else if (m[1] === "career" || m[1] === "adventure" || m[1] === "shop" || m[1] === "menu") {
+      emit(m[1]);
     } else if (inRun) {
       // A crash followed by a fall reports the score twice: count the run once.
       inRun = false;
@@ -183,6 +202,44 @@
       }
     }
 
+    // The speed-up trail is drawn with the game's only shader that multiplies
+    // a texture by vertex colours. Keep each program's sources so it can be
+    // recognised (and copied by a trail painter).
+    var currentProgram = null;
+    wrap("shaderSource", function (a) { if (a[0]) a[0].__slopeSource = a[1]; });
+    wrap("attachShader", function (a) { if (a[0]) (a[0].__slopeShaders = a[0].__slopeShaders || []).push(a[1]); });
+    wrap("linkProgram", function (a) {
+      var program = a[0];
+      if (!program) return;
+      var src = (program.__slopeShaders || []).map(function (sh) { return sh.__slopeSource || ""; });
+      program.__slopeSources = src;
+      program.__slopeTrail = src.length === 2 && /in_COLOR0/.test(src[0]) &&
+        /SV_Target0 = u_xlat10_0 \* vs_COLOR0;/.test(src[1]);
+    });
+    wrap("useProgram", function (a) { currentProgram = a[0]; });
+
+    function isTrail() {
+      return trailPainter && onScreen && currentProgram && currentProgram.__slopeTrail;
+    }
+
+    function paintTrail(args, method) {
+      var program = currentProgram;
+      try {
+        return !!trailPainter({ gl: gl, program: program, draw: function () { raw[method].apply(gl, args); } });
+      } catch (e) {
+        console.error(e);
+        return false;
+      } finally {
+        gl.useProgram(program);
+      }
+    }
+
+    raw.drawArrays = gl.drawArrays;
+    gl.drawArrays = function () {
+      if (isTrail() && paintTrail(arguments, "drawArrays")) return;
+      raw.drawArrays.apply(gl, arguments);
+    };
+
     wrap("createBuffer", function (a, buffer) { if (buffer) buffer.__slopeId = nextId++; });
     wrap("bindBuffer", function (a) {
       if (a[0] === gl.ARRAY_BUFFER) arrayBuffer = a[1];
@@ -236,7 +293,8 @@
     gl.drawElements = function (mode, count) {
       var seen = onScreen && vp && o2w && isPerspective(vp);
       var isBall = seen && count === BALL_INDEX_COUNT;
-      if (!(isBall && paintBall(arguments))) raw.drawElements.apply(gl, arguments);
+      var painted = isBall ? paintBall(arguments) : isTrail() && paintTrail(arguments, "drawElements");
+      if (!painted) raw.drawElements.apply(gl, arguments);
       if (!seen) return;
       frame = frame || newFrame();
       if (isBall) {
@@ -282,7 +340,19 @@
 
   window.SlopeGame = {
     on: on,
+    send: function (eventName) {
+      var instance = window.gameInstance;
+      if (!instance || !instance.Module || !instance.Module.SendMessage) return false;
+      try {
+        instance.SendMessage("EventManager", "SendEvent", eventName);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+    inRun: function () { return inRun; },
     paintBall: function (fn) { ballPainter = fn || null; },
+    paintTrail: function (fn) { trailPainter = fn || null; },
     toSlope: toSlope,
     // Slope coordinates back to world coordinates.
     toWorld: function (s, h, x) {
