@@ -1,6 +1,8 @@
 /*
  * Slope settings: a gear button that opens a track color changer and a
- * graphics quality choice, drawn in the game's own menu style.
+ * graphics quality choice, drawn in the game's own menu style. Also hosts the
+ * page's other UI (window.SlopeUI): the HUD row at the top left and the
+ * shared root that keeps key presses away from the game.
  *
  * The game is a compiled Unity build, so its colors can't be edited directly.
  * Instead an SVG color matrix tints the game: the neon green becomes the chosen
@@ -45,6 +47,18 @@
 
   var graphics = window.SlopeGraphics;
   var state = loadState();
+  var readyCallbacks = [];
+
+  // Shared host for the page's own UI: settings, HUD items, Career screen.
+  var ui = window.SlopeUI = {
+    root: null,
+    hud: null,
+    themeColor: CLASSIC,
+    ready: function (fn) {
+      if (ui.root) fn(ui); else readyCallbacks.push(fn);
+    },
+    closeSettings: function () { if (els.panel) closePanel(false); }
+  };
   var els = {};
   var rainbowFrame = 0;
   var rainbowHue = 0;
@@ -109,6 +123,7 @@
     var game = document.getElementById("gameContainer");
     els.matrix.setAttribute("values", tintMatrix(hexToRgb(hex)));
     els.root.style.setProperty("--slope-color", hex);
+    ui.themeColor = hex;
     if (game) game.style.filter = hex === CLASSIC ? "" : "url(#slope-tint)";
   }
 
@@ -171,6 +186,8 @@
   }
 
   function openPanel() {
+    var toast = els.root.querySelector(".slope-toast"); // shares the spot under the HUD
+    if (toast) toast.hidden = true;
     els.panel.hidden = false;
     els.toggle.setAttribute("aria-expanded", "true");
     var pressed = els.panel.querySelector('.slope-swatch[aria-pressed="true"]');
@@ -208,9 +225,11 @@
           '<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"/>' +
         "</filter>" +
       "</svg>" +
-      '<button type="button" class="slope-btn slope-gear" aria-label="Settings" aria-expanded="false" aria-controls="slope-settings-panel">' +
-        gearSvg() +
-      "</button>" +
+      '<div class="slope-hud">' +
+        '<button type="button" class="slope-btn slope-gear" aria-label="Settings" aria-expanded="false" aria-controls="slope-settings-panel">' +
+          gearSvg() +
+        "</button>" +
+      "</div>" +
       '<div class="slope-panel" id="slope-settings-panel" role="dialog" aria-labelledby="slope-settings-title" hidden>' +
         '<div class="slope-panel-head">' +
           '<h2 class="slope-panel-title" id="slope-settings-title">Settings</h2>' +
@@ -246,7 +265,8 @@
       "</div>";
     document.body.appendChild(root);
 
-    els.root = root;
+    els.root = ui.root = root;
+    ui.hud = root.querySelector(".slope-hud");
     els.matrix = root.querySelector("feColorMatrix");
     els.toggle = root.querySelector(".slope-gear");
     els.panel = root.querySelector(".slope-panel");
@@ -292,6 +312,7 @@
     });
 
     render();
+    readyCallbacks.splice(0).forEach(function (fn) { fn(ui); });
   }
 
   if (document.readyState === "loading") {

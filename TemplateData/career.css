@@ -1,0 +1,340 @@
+/* HUD items, the Career screen and the run summary, built from the same
+   parts as the game's menu: black boxes, 2px neon outlines, dot lettering.
+   Tokens come from .slope-settings in settings.css. */
+
+.slope-fx {
+  position: fixed;
+  z-index: 900;
+  pointer-events: none;
+}
+
+/* --- HUD ------------------------------------------------------------------ */
+
+.slope-hud-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  background: var(--slope-ground);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  color: var(--slope-color);
+  font-family: var(--slope-display);
+  font-size: 20px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-gems svg {
+  color: var(--slope-gem, #ff4fff);
+}
+
+.slope-gems.is-bumped {
+  animation: slope-bump 0.35s ease-out;
+}
+
+@keyframes slope-bump {
+  40% { transform: scale(1.12); }
+}
+
+.slope-level-badge-label {
+  font-family: var(--slope-text);
+  font-size: 13px;
+}
+
+/* --- Career screen ---------------------------------------------------------- */
+
+.slope-career {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  overflow-y: auto;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--slope-ground);
+}
+
+.slope-career[hidden] {
+  display: none;
+}
+
+.slope-career-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(580px, 100%);
+  margin: 0 auto;
+  padding-block: 28px 32px;
+}
+
+.slope-career p,
+.slope-career dl,
+.slope-career dd {
+  margin: 0;
+}
+
+.slope-career-title {
+  margin: 0;
+  font-family: var(--slope-display);
+  font-size: clamp(44px, 9vw, 72px);
+  font-weight: 400;
+  line-height: 1;
+  text-align: center;
+}
+
+.slope-player {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+}
+
+.slope-avatar {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  max-width: 100%;
+  object-fit: cover;
+  outline: 2px solid var(--slope-color);
+  outline-offset: 2px;
+}
+
+.slope-avatar[hidden] {
+  display: none;
+}
+
+.slope-player-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.slope-player-name {
+  font-family: var(--slope-display);
+  font-size: 26px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.slope-player-note {
+  color: var(--slope-dim);
+  font-size: 14px;
+}
+
+.slope-player-level {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 14px;
+}
+
+.slope-player-level strong {
+  font-family: var(--slope-display);
+  font-size: 44px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.slope-xp-bar,
+.slope-toast-bar {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 4px;
+  height: 18px;
+}
+
+.slope-xp-cell {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+}
+
+.slope-xp-cell.is-on {
+  background: var(--slope-color);
+  box-shadow: none;
+}
+
+.slope-xp-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px !important;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-xp-next {
+  color: var(--slope-dim);
+}
+
+.slope-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.slope-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+}
+
+.slope-stat dt {
+  font-size: 14px;
+}
+
+.slope-stat dd {
+  font-family: var(--slope-display);
+  font-size: 28px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.slope-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slope-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  height: 132px;
+  padding: 12px;
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+}
+
+.slope-bar {
+  display: flex;
+  flex: 0 1 36px;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+}
+
+.slope-bar-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dotted bars, like the game's lettering. */
+.slope-bar-fill {
+  width: 100%;
+  max-height: calc(100% - 18px);
+  background: radial-gradient(circle, var(--slope-color) 42%, transparent 48%) 0 100% / 7px 7px;
+}
+
+.slope-bars-empty {
+  margin: auto !important;
+  color: var(--slope-dim);
+  font-size: 15px;
+}
+
+.slope-account-error {
+  color: var(--slope-hover);
+  font-size: 14px;
+  text-align: center;
+}
+
+.slope-account-error[hidden] {
+  display: none;
+}
+
+.slope-career-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.slope-career-actions .slope-btn {
+  min-height: 48px;
+  padding: 0 24px;
+}
+
+.slope-login[hidden] {
+  display: none;
+}
+
+.slope-login:disabled {
+  cursor: progress;
+}
+
+/* --- Run summary -------------------------------------------------------------- */
+
+.slope-toast {
+  position: fixed;
+  z-index: 1000;
+  top: calc(66px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(260px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  padding: 12px 14px;
+  background: var(--slope-ground);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  animation: slope-toast-in 0.2s ease-out;
+}
+
+.slope-toast[hidden] {
+  display: none;
+}
+
+.slope-toast p {
+  margin: 0;
+}
+
+.slope-toast-score,
+.slope-toast-level {
+  font-size: 15px;
+}
+
+.slope-toast-xp {
+  font-family: var(--slope-display);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.slope-toast-bar {
+  gap: 3px;
+  height: 10px;
+}
+
+.slope-toast.is-level-up .slope-toast-level {
+  padding: 6px 8px;
+  background: var(--slope-color);
+  color: var(--slope-ground);
+  font-family: var(--slope-display);
+  font-size: 18px;
+}
+
+@keyframes slope-toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+}
+
+@media (max-width: 520px) {
+  .slope-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slope-gems.is-bumped,
+  .slope-toast {
+    animation: none;
+  }
+}

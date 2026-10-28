@@ -77,11 +77,18 @@
   outline-offset: 3px;
 }
 
-.slope-gear {
+/* HUD row, top left: the game's own sound and speed displays sit top right. */
+.slope-hud {
   position: fixed;
   z-index: 1000;
   top: calc(12px + env(safe-area-inset-top, 0px));
-  right: calc(12px + env(safe-area-inset-right, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.slope-gear {
   display: grid;
   place-items: center;
   width: 44px;
@@ -92,7 +99,7 @@
   position: fixed;
   z-index: 1000;
   top: calc(66px + env(safe-area-inset-top, 0px));
-  right: calc(12px + env(safe-area-inset-right, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -241,4 +248,13 @@
 
 .slope-reset {
   min-height: 44px;
+}
+
+.slope-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
