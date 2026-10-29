@@ -868,7 +868,7 @@
     els.resultBar.setAttribute("aria-valuenow", String(Math.round(run.progress * 100)));
     var gems = window.SlopeGems ? window.SlopeGems.currentRun().gems : 0;
     els.resultStats.textContent = Math.round(run.progress * 100) + "% of the level" +
-      (score !== null && score !== undefined ? "  \u00b7  Score " + score + "  \u00b7  +" + score * profile.xpPerPoint + " XP" : "") +
+      (score !== null && score !== undefined ? "  \u00b7  Score " + score + "  \u00b7  +" + profile.xpFor(score) + " XP" : "") +
       (gems ? "  \u00b7  +" + gems + (gems === 1 ? " gem" : " gems") : "");
     els.resultMain.textContent = pending !== null ? "Starting..." : won ? "Next level" : "Retry";
     els.resultMain.setAttribute("data-level", String(won ? spec.n + 1 : spec.n));

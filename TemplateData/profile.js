@@ -1,6 +1,6 @@
 /*
- * Player profile: XP, level, gems, gem upgrades, ball skins, Adventure
- * progress and run stats.
+ * Player profile: XP, level, gems, gem upgrades, ball skins, backgrounds,
+ * Adventure progress and run stats.
  *
  * XP comes from score: every run earns score x 10 XP. Reaching level L takes
  * 50 * L * (L - 1) XP in total, so each level needs 100 XP more than the last.
@@ -12,11 +12,14 @@
  *
  *   SlopeProfile.get()             current profile with level info
  *   SlopeProfile.recordRun(run)    { score, gems, seconds } -> { xp, levelBefore, levelAfter }
+ *   SlopeProfile.xpFor(score)      XP a run with that score earns
  *   SlopeProfile.addGems(n)            n can be fractional (gem multiplier): the
  *                                      fraction is kept; returns whole gems added
  *   SlopeProfile.buyUpgrade(id, price) spends gems on a gem upgrade; true if bought
  *   SlopeProfile.buySkin(id, price)   spends gems; true if bought (and equips it)
  *   SlopeProfile.equipSkin(id)
+ *   SlopeProfile.buyBackground(id, price)  spends gems; true if bought (and shows it)
+ *   SlopeProfile.equipBackground(id)       "none" is the game's own black
  *   SlopeProfile.completeLevel(n)     Adventure level n beaten: unlocks n + 1
  *   SlopeProfile.onChange(fn)
  *   SlopeProfile.account           { available, signedIn, name, avatarUrl, error }
@@ -45,7 +48,7 @@
 
   function blank() {
     return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0,
-      upgrades: [], gemBank: 0 };
+      upgrades: [], gemBank: 0, backgrounds: [], background: "none" };
   }
 
   function clean(d) {
@@ -56,6 +59,8 @@
       else if (k === "skins") b.skins = Array.isArray(d.skins) ? d.skins.filter(isSkinId) : [];
       else if (k === "skin") b.skin = isSkinId(d.skin) ? d.skin : "classic";
       else if (k === "upgrades") b.upgrades = Array.isArray(d.upgrades) ? d.upgrades.filter(isUpgradeId) : [];
+      else if (k === "backgrounds") b.backgrounds = Array.isArray(d.backgrounds) ? d.backgrounds.filter(isSkinId) : [];
+      else if (k === "background") b.background = isSkinId(d.background) ? d.background : "none";
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
     });
     b.advUnlocked = Math.max(1, Math.floor(b.advUnlocked));
@@ -92,6 +97,7 @@
       recent: data.recent.slice(),
       skins: data.skins.slice(),
       upgrades: data.upgrades.slice(),
+      backgrounds: data.backgrounds.slice(),
       level: info.level,
       levelXp: info.into,
       levelNeed: info.need,
@@ -125,11 +131,17 @@
     });
   }
 
+  // XP for a score; the upgrade tree can add to it (upgrades.js).
+  function xpFor(score) {
+    var boost = window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1;
+    return Math.round(Math.max(0, Math.floor(score || 0)) * XP_PER_POINT * boost);
+  }
+
   function recordRun(run) {
     var score = Math.max(0, Math.floor(run.score || 0));
     var gems = Math.max(0, Math.floor(run.gems || 0));
     var before = levelFor(data.xp).level;
-    var xp = score * XP_PER_POINT;
+    var xp = xpFor(score);
     data.xp += xp;
     data.runs += 1;
     data.total += score;
@@ -175,6 +187,24 @@
     return true;
   }
 
+  function buyBackground(id, price) {
+    price = Math.floor(price);
+    if (!isSkinId(id) || !(price >= 0) || data.backgrounds.indexOf(id) !== -1 || data.gems < price) return false;
+    data.gems -= price;
+    data.backgrounds.push(id);
+    data.background = id;
+    save();
+    changed();
+    return true;
+  }
+
+  function equipBackground(id) {
+    if (!isSkinId(id) || (id !== "none" && data.backgrounds.indexOf(id) === -1)) return;
+    data.background = id;
+    save();
+    changed();
+  }
+
   function equipSkin(id) {
     if (!isSkinId(id) || (id !== "classic" && data.skins.indexOf(id) === -1)) return;
     data.skin = id;
@@ -205,6 +235,8 @@
       advUnlocked: Math.max(a.advUnlocked, b.advUnlocked),
       upgrades: a.upgrades.concat(b.upgrades.filter(function (id) { return a.upgrades.indexOf(id) === -1; })),
       gemBank: (a.gemBank + b.gemBank) % 1,
+      backgrounds: a.backgrounds.concat(b.backgrounds.filter(function (id) { return a.backgrounds.indexOf(id) === -1; })),
+      background: a.background !== "none" ? a.background : b.background,
       advWins: a.advWins + b.advWins,
       recent: a.recent.concat(b.recent).sort(function (x, y) { return (x.at || 0) - (y.at || 0); })
     });
@@ -222,7 +254,8 @@
         return ref.get().then(function (snap) {
           var saved = snap.exists ? clean(snap.data()) : blank();
           var guest = readLocal();
-          var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0 || guest.advUnlocked > 1 || guest.upgrades.length > 0;
+          var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0 || guest.advUnlocked > 1 || guest.upgrades.length > 0 ||
+            guest.backgrounds.length > 0;
           data = hasGuest ? merge(saved, guest) : saved;
           remote = { ref: ref };
           account.signedIn = true;
@@ -274,10 +307,13 @@
     get: snapshot,
     levelFor: levelFor,
     xpPerPoint: XP_PER_POINT,
+    xpFor: xpFor,
     recordRun: recordRun,
     addGems: addGems,
     buySkin: buySkin,
     buyUpgrade: buyUpgrade,
+    buyBackground: buyBackground,
+    equipBackground: equipBackground,
     equipSkin: equipSkin,
     completeLevel: completeLevel,
     signIn: signIn,

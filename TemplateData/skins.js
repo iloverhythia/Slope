@@ -1,5 +1,6 @@
 /*
- * Ball skins and the skin shop.
+ * Ball skins and the shop (skins here; backgrounds.js and upgrades.js fill
+ * its other tabs).
  *
  * Skins are bought with the gems collected on the track. The equipped skin
  * is drawn in place of the game's own ball (SlopeGame.paintBall), on the
@@ -103,7 +104,25 @@
     { id: "marble", name: "Marble", price: 55, pattern: 24, trail: [0.85, 0.9, 1.0] },
     { id: "circuit", name: "Circuit", price: 65, pattern: 25, trail: [0.3, 1.0, 0.5] },
     { id: "sun", name: "Sun", price: 85, pattern: 29, trail: [1.0, 0.6, 0.1] },
-    { id: "plasma", name: "Plasma", price: 120, pattern: 30, trail: "rainbow" }
+    { id: "plasma", name: "Plasma", price: 120, pattern: 30, trail: "rainbow" },
+    { id: "beachball", name: "Beach Ball", price: 30, pattern: 31, trail: [1.0, 0.85, 0.1] },
+    { id: "cookie", name: "Cookie", price: 30, pattern: 40, points: fibonacci(28, 0.5), trail: [0.85, 0.6, 0.3] },
+    { id: "peppermint", name: "Peppermint", price: 35, pattern: 41, trail: [1.0, 0.15, 0.2] },
+    { id: "baseball", name: "Baseball", price: 35, pattern: 34, trail: [1.0, 0.2, 0.15] },
+    { id: "volleyball", name: "Volleyball", price: 40, pattern: 35, trail: [1.0, 0.85, 0.15] },
+    { id: "pumpkin", name: "Pumpkin", price: 45, pattern: 32, trail: [1.0, 0.55, 0.05] },
+    { id: "sprinkles", name: "Sprinkles", price: 45, pattern: 33, points: fibonacci(70, 0.6), trail: "rainbow" },
+    { id: "wood", name: "Wood", price: 45, pattern: 44, trail: [0.8, 0.55, 0.3] },
+    { id: "bowling", name: "Bowling", price: 50, pattern: 36, trail: [0.6, 0.2, 1.0] },
+    { id: "leopard", name: "Leopard", price: 55, pattern: 43, points: fibonacci(60, 0.45), trail: [1.0, 0.7, 0.3] },
+    { id: "ocean", name: "Ocean", price: 60, pattern: 39, trail: [0.1, 0.6, 1.0] },
+    { id: "cyber", name: "Cyber", price: 65, pattern: 37, trail: [0.1, 0.9, 1.0] },
+    { id: "mars", name: "Mars", price: 70, pattern: 46, trail: [1.0, 0.35, 0.1] },
+    { id: "tiedye", name: "Tie-Dye", price: 75, pattern: 45, trail: "rainbow" },
+    { id: "jupiter", name: "Jupiter", price: 80, pattern: 42, trail: [0.95, 0.75, 0.5] },
+    { id: "chrome", name: "Chrome", price: 90, pattern: 38, trail: [0.9, 0.95, 1.0] },
+    { id: "hologram", name: "Hologram", price: 110, pattern: 48, trail: [0.3, 1.0, 1.0] },
+    { id: "diamond", name: "Diamond", price: 150, pattern: 47, points: fibonacci(36, 0.3), trail: [0.75, 0.95, 1.0] }
   ];
 
   // The shop lists them cheapest first (Classic, free, stays first).
@@ -177,6 +196,14 @@
     "// Distance to four great circles through the poles, 45 degrees apart.",
     "float meridians(vec3 p) {",
     "  return min(min(abs(p.x), abs(p.z)), min(abs(p.x + p.z), abs(p.x - p.z)) * 0.7071068);",
+    "}",
+    "",
+    "// Which face of a cube around the ball p is on (1 to 6), and where on it (-1 to 1).",
+    "float cubeFace(vec3 p, out vec2 uv) {",
+    "  vec3 a = abs(p);",
+    "  if (a.x >= a.y && a.x >= a.z) { uv = p.yz / a.x; return p.x > 0.0 ? 1.0 : 2.0; }",
+    "  if (a.y >= a.z) { uv = p.xz / a.y; return p.y > 0.0 ? 3.0 : 4.0; }",
+    "  uv = p.xy / a.z; return p.z > 0.0 ? 5.0 : 6.0;",
     "}",
     "",
     "// The two nearest points of the point set: their closeness, and the nearest one.",
@@ -367,10 +394,126 @@
     "    float glow = fbm(p * 3.0 + vec3(0.0, uTime * 0.25, 0.0));",
     "    col = mix(vec3(1.0, 0.42, 0.02), vec3(1.0, 0.95, 0.55), smoothstep(0.35, 0.75, glow));",
     "    col += vec3(1.0, 0.5, 0.1) * pow(1.0 - facing, 2.0) * 0.6;",
-    "  } else {", // Plasma
+    "  } else if (uPattern == 30) {", // Plasma
     "    float t = uTime;",
     "    float k = sin(p.x * 6.0 + t) + sin(p.y * 7.0 - t * 1.3) + sin(p.z * 5.0 + t * 0.7) + sin(length(p.xy) * 8.0 - t);",
     "    col = hue(k * 0.25 + t * 0.05) * (0.8 + 0.2 * shade);",
+    "  } else if (uPattern == 31) {", // Beach ball: six panels, white caps
+    "    float seg = floor(mod(lon + PI, 2.0 * PI) / (PI / 3.0));",
+    "    vec3 c = seg < 0.5 ? vec3(1.0, 0.15, 0.1) : seg < 1.5 ? vec3(0.97) : seg < 2.5 ? vec3(0.1, 0.4, 1.0)",
+    "      : seg < 3.5 ? vec3(1.0, 0.85, 0.1) : seg < 4.5 ? vec3(0.97) : vec3(0.15, 0.8, 0.3);",
+    "    c = mix(c, vec3(0.97), fill(abs(p.y) - 0.88));",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 30.0);",
+    "    col = c * shade + vec3(spec * 0.6);",
+    "  } else if (uPattern == 32) {", // Pumpkin: ribs, a stem and a glowing face
+    "    vec3 c = mix(vec3(0.5, 0.17, 0.02), vec3(1.0, 0.5, 0.05), smoothstep(0.0, 0.6, abs(sin(lon * 5.0))));",
+    "    c = mix(c, vec3(0.25, 0.45, 0.1), fill(p.y - 0.93));",
+    "    vec2 f = p.xy;",
+    "    vec2 e1 = f - vec2(-0.27, 0.18), e2 = f - vec2(0.27, 0.18);",
+    "    float eyes = max(fill(0.1 - 1.6 * abs(e1.x) - e1.y) * fill(e1.y + 0.08), fill(0.1 - 1.6 * abs(e2.x) - e2.y) * fill(e2.y + 0.08));",
+    "    float my = -0.3 + 0.35 * f.x * f.x;",
+    "    float teeth = 0.075 - 0.035 * step(0.5, fract(f.x * 6.0 + 0.25));",
+    "    float mouth = fill(teeth - abs(f.y - my)) * fill(0.45 - abs(f.x));",
+    "    float glow = 0.85 + 0.15 * sin(uTime * 5.0);",
+    "    col = mix(c * shade, vec3(1.0, 0.8, 0.25) * glow, max(eyes, mouth) * step(0.0, p.z));",
+    "  } else if (uPattern == 33) {", // Sprinkles: pink frosting, coloured sprinkles
+    "    vec3 c = cells(p);",
+    "    vec3 q = uPoints[int(c.z)];",
+    "    vec3 t1 = normalize(cross(q, vec3(0.0, 1.0, 0.01))), t2 = cross(q, t1);",
+    "    float an = hash1(c.z) * PI;",
+    "    vec2 l = vec2(dot(p - q, t1), dot(p - q, t2));",
+    "    l = vec2(cos(an) * l.x + sin(an) * l.y, -sin(an) * l.x + cos(an) * l.y);",
+    "    float dash = length(max(abs(l) - vec2(0.055, 0.0), 0.0));",
+    "    vec3 frosting = vec3(1.0, 0.55, 0.75) * (0.9 + 0.1 * noise3(p * 12.0));",
+    "    col = mix(frosting, hue(hash1(c.z + 5.0)), line(dash, 0.022)) * shade;",
+    "  } else if (uPattern == 34) {", // Baseball: red double stitching
+    "    float d = lat - 0.45 * sin(2.0 * lon);",
+    "    float stitch = line(abs(abs(d) - 0.055), 0.018) * step(0.5, fract(lon * 24.0 / PI));",
+    "    vec3 leather = vec3(0.96, 0.94, 0.88) * (0.9 + 0.1 * noise3(p * 40.0));",
+    "    leather *= 1.0 - 0.12 * line(abs(d), 0.012);",
+    "    col = mix(leather, vec3(0.85, 0.08, 0.06), stitch) * shade;",
+    "  } else if (uPattern == 35) {", // Volleyball: three panels on each face of a cube
+    "    vec2 uv; float face = cubeFace(p, uv);",
+    "    float across = mod(face, 2.0) < 0.5 ? uv.x : uv.y;",
+    "    float strip = floor(clamp((across + 1.0) * 1.5, 0.0, 2.99));",
+    "    vec3 c = strip == 1.0 ? vec3(1.0, 0.84, 0.15) : (mod(face, 3.0) < 0.5 ? vec3(0.1, 0.35, 0.9) : vec3(0.97));",
+    "    float seam = min(abs(fract((across + 1.0) * 1.5) - 0.5) * -1.0 + 0.5, min(1.0 - abs(uv.x), 1.0 - abs(uv.y)));",
+    "    col = c * shade * (1.0 - 0.75 * line(seam, 0.035));",
+    "  } else if (uPattern == 36) {", // Bowling: glossy swirl, three finger holes
+    "    float sw = sin(fbm(p * 2.5) * 12.0) * 0.5 + 0.5;",
+    "    vec3 c = mix(vec3(0.15, 0.02, 0.35), vec3(0.45, 0.12, 0.8), smoothstep(0.3, 0.7, sw));",
+    "    float dh = min(min(distance(p, normalize(vec3(-0.13, 0.45, 0.88))), distance(p, normalize(vec3(0.13, 0.45, 0.88)))),",
+    "      distance(p, normalize(vec3(0.0, 0.15, 0.99))));",
+    "    c = mix(c, vec3(0.01), 1.0 - fill(dh - 0.07));",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 50.0);",
+    "    col = c * shade + vec3(spec * 0.9) + vec3(0.25, 0.1, 0.4) * pow(1.0 - facing, 3.0);",
+    "  } else if (uPattern == 37) {", // Cyber: a glowing grid with pulses
+    "    float d1 = abs(fract(lon * 4.0 / PI + 0.5) - 0.5) * (PI / 4.0) * cos(lat);",
+    "    float d2 = abs(fract(lat * 8.0 / PI + 0.5) - 0.5) * (PI / 8.0);",
+    "    float d = min(d1, d2);",
+    "    float pulse = 0.5 + 0.5 * sin(lat * 6.0 - uTime * 3.0);",
+    "    col = vec3(0.1, 0.9, 1.0) * (line(d, 0.018) + 0.35 * exp(-d * 40.0) * pulse) + vec3(0.0, 0.03, 0.06);",
+    "  } else if (uPattern == 38) {", // Chrome: a mirror of a bright sky and dark ground
+    "    vec3 r = reflect(-v, n);",
+    "    vec3 env = r.y > 0.0 ? mix(vec3(0.55, 0.6, 0.7), vec3(0.95, 0.97, 1.0), r.y) : mix(vec3(0.18), vec3(0.4), -r.y);",
+    "    env += vec3(0.6) * exp(-abs(r.y) * 30.0);",
+    "    col = env * 0.9 + vec3(pow(max(dot(r, uLight), 0.0), 80.0));",
+    "  } else if (uPattern == 39) {", // Ocean: rolling waves and foam
+    "    float w = fbm(p * 3.0 + vec3(uTime * 0.2, 0.0, uTime * 0.15));",
+    "    vec3 c = mix(vec3(0.0, 0.2, 0.45), vec3(0.1, 0.55, 0.8), smoothstep(0.3, 0.7, w));",
+    "    c += vec3(0.8, 0.95, 1.0) * line(abs(w - 0.62), 0.012) * 0.8;",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 40.0);",
+    "    col = c * shade + vec3(spec * 0.6);",
+    "  } else if (uPattern == 40) {", // Cookie: dough with chocolate chips
+    "    vec3 c = cells(p);",
+    "    float d = sqrt(max(0.0, 2.0 - 2.0 * c.x));",
+    "    float chip = hash1(c.z + 3.0) > 0.35 ? 1.0 - fill(d - 0.06 - 0.07 * hash1(c.z) - 0.02 * noise3(p * 30.0)) : 0.0;",
+    "    vec3 dough = vec3(0.82, 0.6, 0.32) * (0.8 + 0.25 * fbm(p * 8.0));",
+    "    col = mix(dough, vec3(0.2, 0.09, 0.03), chip) * shade;",
+    "  } else if (uPattern == 41) {", // Peppermint: a red and white swirl
+    "    float sw = sin(atan(p.y, p.x) * 8.0 + acos(clamp(p.z, -1.0, 1.0)) * 3.0);",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 40.0);",
+    "    col = mix(vec3(0.97), vec3(0.9, 0.05, 0.1), fill(sw - 0.1)) * shade + vec3(spec * 0.7);",
+    "  } else if (uPattern == 42) {", // Jupiter: cloud bands and a great red spot
+    "    float b = p.y * 9.0 + 0.6 * fbm(p * vec3(3.0, 12.0, 3.0) + vec3(uTime * 0.03, 0.0, 0.0));",
+    "    vec3 c = mix(vec3(0.75, 0.6, 0.45), vec3(0.95, 0.88, 0.75), 0.5 + 0.5 * sin(b));",
+    "    c = mix(c, vec3(0.6, 0.38, 0.25), smoothstep(0.6, 1.0, sin(b * 0.5 + 1.0)) * 0.5);",
+    "    float spot = length((p - normalize(vec3(0.5, -0.35, 0.8))) * vec3(1.0, 1.8, 1.0));",
+    "    c = mix(c, vec3(0.8, 0.3, 0.15), 1.0 - smoothstep(0.1, 0.17, spot));",
+    "    col = c * shade;",
+    "  } else if (uPattern == 43) {", // Leopard: broken rosettes
+    "    vec3 c = cells(p);",
+    "    float d = sqrt(max(0.0, 2.0 - 2.0 * c.x)) + 0.04 * (noise3(p * 20.0) - 0.5);",
+    "    float r = 0.075 + 0.03 * hash1(c.z);",
+    "    vec3 fur = mix(vec3(0.92, 0.68, 0.32), vec3(0.8, 0.5, 0.18), 1.0 - fill(d - r + 0.01));",
+    "    float ring = line(d - r, 0.022 + 0.01 * hash1(c.z + 2.0)) * step(0.25, noise3(p * 16.0));",
+    "    col = mix(fur, vec3(0.08, 0.05, 0.02), ring) * shade;",
+    "  } else if (uPattern == 44) {", // Wood: rings and grain under varnish
+    "    float rr = length(p.xz + vec2(0.3, 0.2)) * 9.0 + 1.5 * fbm(p * 3.0) + 0.3 * noise3(p * vec3(40.0, 8.0, 40.0));",
+    "    float g = fract(rr);",
+    "    vec3 c = mix(vec3(0.5, 0.29, 0.12), vec3(0.78, 0.54, 0.3), smoothstep(0.0, 0.7, g) * (1.0 - smoothstep(0.85, 1.0, g)));",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 25.0);",
+    "    col = c * shade + vec3(spec * 0.25);",
+    "  } else if (uPattern == 45) {", // Tie-dye: a swirl of colours
+    "    float k = atan(p.y, p.x) / (2.0 * PI) * 3.0 + acos(clamp(p.z, -1.0, 1.0)) * 1.2 + 0.25 * fbm(p * 3.0);",
+    "    col = hue(k) * (0.8 + 0.2 * shade) * (0.8 + 0.2 * sin(k * 25.0));",
+    "  } else if (uPattern == 46) {", // Mars: rusty plains, dark lands, an ice cap
+    "    vec3 c = mix(vec3(0.55, 0.18, 0.07), vec3(0.85, 0.42, 0.18), smoothstep(0.35, 0.7, fbm(p * 2.5 + 11.0)));",
+    "    c = mix(c, vec3(0.35, 0.12, 0.06), smoothstep(0.62, 0.8, fbm(p * 5.0)));",
+    "    c = mix(c, vec3(0.95, 0.92, 0.9), fill(p.y - 0.9 + 0.04 * noise3(p * 10.0)));",
+    "    col = c * shade + vec3(0.9, 0.4, 0.2) * pow(1.0 - facing, 3.0) * 0.4;",
+    "  } else if (uPattern == 47) {", // Diamond: sparkling facets
+    "    vec3 c = cells(p);",
+    "    float k = hash1(c.z);",
+    "    float sparkle = pow(0.5 + 0.5 * sin(uTime * 2.0 + k * 30.0), 8.0);",
+    "    vec3 facet = mix(vec3(0.55, 0.75, 0.95), vec3(1.0), k) * (0.6 + 0.4 * shade);",
+    "    facet += hue(k + uTime * 0.1) * 0.35 * sparkle;",
+    "    col = mix(facet, vec3(1.0), line(c.x - c.y, 0.008) * 0.8);",
+    "  } else if (uPattern == 48) {", // Hologram: scanlines, flicker and a bright rim
+    "    float scan = 0.6 + 0.4 * sin(vWorld.y * 60.0 - uTime * 6.0);",
+    "    float flick = 0.85 + 0.15 * sin(uTime * 23.0) * sin(uTime * 7.0);",
+    "    col = vec3(0.2, 0.9, 1.0) * (0.15 + 0.85 * pow(1.0 - facing, 2.0)) * scan * flick;",
+    "    col += vec3(0.6, 1.0, 1.0) * line(meridians(p), 0.015) * 0.5;",
     "  }",
     "  // A faint rim keeps the round shape visible where the body is black.",
     "  col += vec3(0.1) * pow(1.0 - facing, 2.5) * step(max(col.r, max(col.g, col.b)), 0.04);",
@@ -659,6 +802,11 @@
     return window.SlopeGems && window.SlopeGems.iconSvg ? window.SlopeGems.iconSvg(14, 12) : "";
   }
 
+  // What a skin costs now (the upgrade tree can take money off).
+  function priceOf(skin) {
+    return window.SlopeUpgrades && window.SlopeUpgrades.price ? window.SlopeUpgrades.price(skin.price) : skin.price;
+  }
+
   function build(ui) {
     var screen = document.createElement("div");
     screen.className = "slope-career slope-shop";
@@ -674,6 +822,7 @@
           '<span class="slope-shop-mult"></span></p>' +
         '<div class="slope-tabs" role="tablist" aria-label="Shop">' +
           '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-skins" aria-controls="slope-panel-skins" data-tab="skins">Skins</button>' +
+          '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-backgrounds" aria-controls="slope-panel-backgrounds" data-tab="backgrounds">Backgrounds</button>' +
           '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-upgrades" aria-controls="slope-panel-upgrades" data-tab="upgrades">Upgrades</button>' +
         "</div>" +
         '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-skins" aria-labelledby="slope-tab-skins">' +
@@ -690,6 +839,7 @@
           "</ul>" +
           '<p class="slope-shop-status" role="status"></p>' +
         "</div>" +
+        '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-backgrounds" aria-labelledby="slope-tab-backgrounds" hidden></div>' +
         '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-upgrades" aria-labelledby="slope-tab-upgrades" hidden></div>' +
         '<div class="slope-career-actions">' +
           '<button type="button" class="slope-btn slope-back">Back</button>' +
@@ -704,7 +854,8 @@
       status: screen.querySelector(".slope-shop-status"),
       back: screen.querySelector(".slope-back"),
       tabs: Array.prototype.slice.call(screen.querySelectorAll(".slope-tab")),
-      panels: { skins: screen.querySelector("#slope-panel-skins"), upgrades: screen.querySelector("#slope-panel-upgrades") },
+      panels: { skins: screen.querySelector("#slope-panel-skins"), backgrounds: screen.querySelector("#slope-panel-backgrounds"),
+        upgrades: screen.querySelector("#slope-panel-upgrades") },
       cards: SKINS.map(function (s) {
         var li = screen.querySelector('[data-skin="' + s.id + '"]');
         return {
@@ -788,11 +939,11 @@
         card.action.textContent = "Equip";
         card.action.setAttribute("aria-label", "Equip " + s.name);
       } else {
-        var short = s.price - p.gems;
-        card.price.innerHTML = gemIcon() + "<span>" + s.price + (short > 0 ? " (" + short + " more)" : "") + "</span>";
+        var price = priceOf(s), short = price - p.gems;
+        card.price.innerHTML = gemIcon() + "<span>" + price + (short > 0 ? " (" + short + " more)" : "") + "</span>";
         card.action.textContent = "Buy";
         card.action.disabled = short > 0;
-        card.action.setAttribute("aria-label", "Buy " + s.name + " for " + s.price + " gems" +
+        card.action.setAttribute("aria-label", "Buy " + s.name + " for " + price + " gems" +
           (short > 0 ? ", you need " + short + " more" : ""));
       }
     });
@@ -804,10 +955,10 @@
     if (skin.id === "classic" || p.skins.indexOf(skin.id) !== -1) {
       profile.equipSkin(skin.id);
       els.status.textContent = skin.name + " is on your ball.";
-    } else if (profile.buySkin(skin.id, skin.price)) {
+    } else if (profile.buySkin(skin.id, priceOf(skin))) {
       els.status.textContent = "Bought " + skin.name + ". It's on your ball now.";
     } else {
-      els.status.textContent = "You need " + (skin.price - p.gems) + " more gems for " + skin.name + ".";
+      els.status.textContent = "You need " + (priceOf(skin) - p.gems) + " more gems for " + skin.name + ".";
     }
     var card = els.cards.filter(function (c) { return c.skin === skin; })[0];
     if (card) card.action.focus();

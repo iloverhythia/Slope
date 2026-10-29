@@ -1,15 +1,26 @@
 /*
- * Gem upgrade tree, on the shop's Upgrades tab. It never ends, and the only
- * thing it raises is the gem multiplier: every gem picked up on the track is
- * worth that many gems (fractions add up across pickups, see
- * SlopeProfile.addGems).
+ * Gem upgrade tree, on the shop's Upgrades tab. It never ends.
  *
  * Tier t has three upgrades: two side ones (tL, tR) and a centre one (tC).
  * The sides need the centre of the tier above; the centre needs both sides.
- * Every 10th tier is a milestone with bigger boosts. Prices grow 20% a tier.
+ * Every 10th tier is a milestone with bigger multiplier boosts. Prices grow
+ * 20% a tier.
  *
- *   SlopeUpgrades.multiplier()   the gem multiplier: 1 + every bought boost
- *   SlopeUpgrades.node(id)       { id, tier, part, boost, price, milestone }
+ * The centres (and tier 1, and milestones) raise the gem multiplier: every
+ * gem picked up is worth that many gems (fractions add up, see
+ * SlopeProfile.addGems). From tier 2 the sides take turns between six kinds:
+ *   Multiplier   +0.05x
+ *   Magnet       +15% pickup reach, and gems drift towards the ball
+ *   More gems    +10% gems on the track
+ *   Lucky        +2% chance a gem is golden (worth 5)
+ *   XP           +10% XP from every run
+ *   Shop sale    -3% on skins and backgrounds
+ * Kinds with a limit stop turning up once the tree holds enough of them to
+ * reach it; their places go to the multiplier.
+ *
+ *   SlopeUpgrades.multiplier() / magnet() / spawn() / luck() / xp() / discount()
+ *   SlopeUpgrades.price(base)    a shop price after the sale
+ *   SlopeUpgrades.node(id)       { id, tier, part, kind, amount, price, milestone }
  */
 (function () {
   "use strict";
@@ -22,19 +33,54 @@
   var PRICE_GROWTH = 1.2;
   var EXTRA_TIERS = 2;   // locked tiers shown past the furthest one you can buy
 
-  // Boosts are kept in hundredths, so adding them up stays exact.
+  // amount: per upgrade, in hundredths (multiplier) or percent; cap: how many
+  // the tree holds at most.
+  var KINDS = {
+    mult: { name: "Multiplier", what: "gem multiplier" },
+    magnet: { name: "Magnet", what: "pickup reach", per: 15, cap: 10 },
+    spawn: { name: "More gems", what: "gems on the track", per: 10, cap: 10 },
+    lucky: { name: "Lucky", what: "chance of golden gems", per: 2, cap: 15 },
+    xp: { name: "XP", what: "XP from every run", per: 10 },
+    discount: { name: "Shop sale", what: "off skins and backgrounds", per: 3, cap: 15 }
+  };
+  var ORDER = ["magnet", "spawn", "lucky", "xp", "discount"];
+  var CYCLE = ["magnet", "spawn", "lucky", "xp", "discount", "mult", "spawn", "magnet", "xp", "lucky", "mult", "discount"];
+
+  // The side upgrades' kinds, in tree order from tier 2, worked out once.
+  // Once every limited kind is used up the pattern simply repeats, so tiers
+  // past that point are worked out directly.
+  var sideKinds = [], placed = {}, settled = false;
+  function repeating(i) {
+    var k = (Math.floor(i / 2) + 2) % MILESTONE === 0 ? "mult" : CYCLE[i % CYCLE.length];
+    return KINDS[k].cap ? "mult" : k;
+  }
+  function sideKind(tier, part) {
+    var i = (tier - 2) * 2 + (part === "R" ? 1 : 0);
+    while (!settled && sideKinds.length <= i) {
+      var j = sideKinds.length, t = Math.floor(j / 2) + 2;
+      var k = t % MILESTONE === 0 ? "mult" : CYCLE[j % CYCLE.length];
+      if (KINDS[k].cap && (placed[k] || 0) >= KINDS[k].cap) k = "mult";
+      placed[k] = (placed[k] || 0) + 1;
+      sideKinds.push(k);
+      settled = ORDER.every(function (name) { return !KINDS[name].cap || (placed[name] || 0) >= KINDS[name].cap; });
+    }
+    return i < sideKinds.length ? sideKinds[i] : repeating(i);
+  }
+
   function node(id) {
     var m = /^([1-9][0-9]*)([LRC])$/.exec(id);
     if (!m) return null;
     var tier = +m[1], part = m[2], milestone = tier % MILESTONE === 0;
     var base = Math.round(PRICE_START * Math.pow(PRICE_GROWTH, tier - 1));
     var centre = part === "C";
+    var kind = centre || tier === 1 ? "mult" : sideKind(tier, part);
     return {
       id: id,
       tier: tier,
       part: part,
       milestone: milestone,
-      boost: centre ? (milestone ? 50 : 15) : (milestone ? 10 : 5),
+      kind: kind,
+      amount: kind === "mult" ? (centre ? (milestone ? 50 : 15) : (milestone ? 10 : 5)) : KINDS[kind].per,
       price: centre ? base * (milestone ? 3 : 2) : base
     };
   }
@@ -44,27 +90,47 @@
     return n.tier > 1 ? [(n.tier - 1) + "C"] : [];
   }
 
-  function multiplierOf(owned) {
-    var hundredths = 100;
-    owned.forEach(function (id) { var n = node(id); if (n) hundredths += n.boost; });
-    return hundredths / 100;
+  function effectsOf(list) {
+    var sum = { mult: 100, magnet: 0, spawn: 0, lucky: 0, xp: 0, discount: 0 };
+    list.forEach(function (id) { var n = node(id); if (n) sum[n.kind] += n.amount; });
+    ORDER.forEach(function (k) { if (KINDS[k].cap) sum[k] = Math.min(sum[k], KINDS[k].per * KINDS[k].cap); });
+    return {
+      multiplier: sum.mult / 100,
+      magnet: sum.magnet / 100,
+      spawn: sum.spawn / 100,
+      lucky: sum.lucky / 100,
+      xp: 1 + sum.xp / 100,
+      discount: sum.discount / 100,
+      percent: sum
+    };
   }
 
   function fmtMult(m) { return "x" + m.toFixed(2); }
-  function fmtBoost(n) { return "+" + (n.boost / 100).toFixed(2) + "x"; }
+  function fmtAmount(n) {
+    if (n.kind === "mult") return "+" + (n.amount / 100).toFixed(2) + "x";
+    return (n.kind === "discount" ? "-" : "+") + n.amount + "%";
+  }
   function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
 
   var owned = profile.get().upgrades;
-  profile.onChange(function (p) { owned = p.upgrades; });
+  var fx = effectsOf(owned);
+  profile.onChange(function (p) { owned = p.upgrades; fx = effectsOf(owned); });
 
   window.SlopeUpgrades = {
-    multiplier: function () { return multiplierOf(owned); },
-    node: node
+    multiplier: function () { return fx.multiplier; },
+    magnet: function () { return fx.magnet; },       // extra pickup reach: 0.15 is +15%
+    spawn: function () { return fx.spawn; },         // extra gems on the track
+    luck: function () { return fx.lucky; },          // chance a gem is golden
+    xp: function () { return fx.xp; },               // XP factor
+    discount: function () { return fx.discount; },   // off shop prices
+    price: function (base) { return base > 0 ? Math.max(1, Math.round(base * (1 - fx.discount))) : 0; },
+    node: node,
+    kinds: KINDS
   };
 
   // --- Shop tab -------------------------------------------------------------
 
-  var NODE_H = 64, ROW_GAP = 26, ROW = NODE_H + ROW_GAP, TIER_H = 2 * ROW;
+  var NODE_H = 78, ROW_GAP = 26, ROW = NODE_H + ROW_GAP, TIER_H = 2 * ROW;
   var X = { L: 100, C: 300, R: 500 };  // centres, in a 600-wide drawing
   var els = null, tiers = 0, nodes = {};
 
@@ -77,8 +143,14 @@
       '<div class="slope-upgrades-head">' +
         '<p class="slope-upgrades-mult"><span class="slope-upgrades-mult-label">Gem multiplier</span>' +
           '<span class="slope-upgrades-mult-value"></span></p>' +
-        '<p class="slope-shop-note">Every gem you pick up is worth your multiplier. ' +
-          "Each upgrade opens the next ones, and the tree never ends. Every 10th tier boosts more.</p>" +
+        '<ul class="slope-upgrades-effects">' +
+          ORDER.map(function (k) {
+            return '<li data-kind="' + k + '"><span>' + KINDS[k].name + '</span><span class="slope-effect-value"></span></li>';
+          }).join("") +
+        "</ul>" +
+        '<p class="slope-shop-note">Every gem you pick up is worth your multiplier. The other upgrades pull gems in, ' +
+          "put more on the track, make some golden (worth 5), add XP and take gems off shop prices. " +
+          "Each upgrade opens the next ones, and the tree never ends.</p>" +
       "</div>" +
       '<div class="slope-tree">' +
         '<svg class="slope-tree-lines" aria-hidden="true" preserveAspectRatio="none"></svg>' +
@@ -92,6 +164,7 @@
       lines: panel.querySelector(".slope-tree-lines"),
       list: panel.querySelector(".slope-tree-tiers"),
       status: panel.querySelector(".slope-upgrades-status"),
+      effects: ORDER.map(function (k) { return { kind: k, li: panel.querySelector('[data-kind="' + k + '"]') }; }),
       mult: document.querySelector(".slope-shop-mult")
     };
     panel.addEventListener("slope-show", function () {
@@ -111,7 +184,8 @@
       ["L", "R", "C"].map(function (part) {
         var n = node(t + part);
         return '<button type="button" class="slope-btn slope-upgrade slope-upgrade-' + part.toLowerCase() +
-          '" data-id="' + n.id + '"><span class="slope-upgrade-boost">' + fmtBoost(n) + "</span>" +
+          '" data-id="' + n.id + '" data-kind="' + n.kind + '"><span class="slope-upgrade-boost">' + fmtAmount(n) + "</span>" +
+          '<span class="slope-upgrade-kind">' + KINDS[n.kind].name + "</span>" +
           '<span class="slope-upgrade-price"></span></button>';
       }).join("");
     els.list.appendChild(li);
@@ -128,18 +202,22 @@
     return gems >= n.price ? "ready" : "short";
   }
 
-  // The furthest tier with an upgrade you own or can buy now.
+  // The furthest tier open to you: the one after the last centre in an
+  // unbroken line from tier 1.
   function reach(have) {
     var t = 1;
-    Object.keys(have).forEach(function (id) {
-      var n = node(id);
-      if (n) t = Math.max(t, n.part === "C" ? n.tier + 1 : n.tier);
-    });
+    while (have[t + "C"]) t++;
     return t;
   }
 
+  function effectText(k) {
+    var v = fx.percent[k];
+    if (!v) return "0%";
+    return (k === "discount" ? "-" : "+") + v + "%" + (KINDS[k].cap && v >= KINDS[k].per * KINDS[k].cap ? " max" : "");
+  }
+
   function render(p) {
-    var mult = multiplierOf(owned);
+    var mult = fx.multiplier;
     if (els && els.mult) {
       els.mult.textContent = mult > 1 ? fmtMult(mult) + " per gem" : "";
       els.mult.hidden = !(mult > 1);
@@ -148,6 +226,10 @@
     var have = {};
     owned.forEach(function (id) { have[id] = true; });
     els.value.textContent = fmtMult(mult);
+    els.effects.forEach(function (e) {
+      e.li.querySelector(".slope-effect-value").textContent = effectText(e.kind);
+      e.li.classList.toggle("is-zero", !fx.percent[e.kind]);
+    });
     var want = reach(have) + EXTRA_TIERS;
     while (tiers < want) addTier(++tiers);
     for (var id in nodes) {
@@ -155,7 +237,7 @@
       b.className = b.className.replace(/ is-\w+/g, "") + " is-" + state + (n.milestone ? " is-milestone" : "");
       b.disabled = state === "owned" || state === "locked";
       b.setAttribute("aria-disabled", String(state !== "ready"));
-      var what = fmtBoost(n) + " gem multiplier, tier " + n.tier;
+      var what = fmtAmount(n) + " " + KINDS[n.kind].what + ", tier " + n.tier;
       if (state === "owned") {
         o.price.textContent = "Bought";
         b.setAttribute("aria-label", what + ", bought");
@@ -219,7 +301,9 @@
     }
     var focused = document.activeElement === nodes[n.id].button;
     if (profile.buyUpgrade(n.id, n.price)) {
-      els.status.textContent = "Bought " + fmtBoost(n) + ". Your gem multiplier is " + fmtMult(multiplierOf(owned)) + ".";
+      els.status.textContent = n.kind === "mult"
+        ? "Bought " + fmtAmount(n) + ". Your gem multiplier is " + fmtMult(fx.multiplier) + "."
+        : "Bought " + KINDS[n.kind].name + " " + fmtAmount(n) + ". Now " + effectText(n.kind) + " " + KINDS[n.kind].what + ".";
       // The bought button turns off: keep the keyboard on the tree.
       var next = firstBuyable();
       if (focused) (next ? next.button : els.panel.closest(".slope-shop").querySelector(".slope-back")).focus({ preventScroll: true });

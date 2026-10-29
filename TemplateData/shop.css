@@ -124,6 +124,19 @@
   font-size: 18px;
 }
 
+/* Backgrounds: wider cards with a 16:10 preview (PREVIEW_W x PREVIEW_H in backgrounds.js). */
+.slope-bgs {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+
+.slope-bg-preview {
+  display: block;
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 16 / 10;
+  box-shadow: 0 0 0 1px var(--slope-dim);
+}
+
 /* Not enough gems yet: dimmed, and no red hover. */
 .slope-shop .slope-btn:disabled,
 .slope-shop .slope-btn:disabled:hover {
@@ -135,6 +148,10 @@
 @media (max-width: 400px) {
   .slope-skins {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .slope-bgs {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -157,6 +174,30 @@
   font-size: 15px;
 }
 
+.slope-upgrades-effects {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slope-upgrades-effects li {
+  display: flex;
+  gap: 8px;
+  padding: 5px 9px;
+  box-shadow: inset 0 0 0 1px var(--slope-color);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-upgrades-effects li.is-zero {
+  box-shadow: inset 0 0 0 1px var(--slope-dim);
+  color: var(--slope-dim);
+}
+
 .slope-upgrades-mult-value {
   font-family: var(--slope-display);
   font-size: 34px;
@@ -164,7 +205,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Geometry matches upgrades.js: 64px nodes, 26px between rows and tiers,
+/* Geometry matches upgrades.js: 78px nodes, 26px between rows and tiers,
    three equal columns with node centres at 1/6, 1/2 and 5/6. */
 .slope-tree {
   position: relative;
@@ -208,7 +249,7 @@
 .slope-tier {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: 64px 64px;
+  grid-template-rows: 78px 78px;
   row-gap: 26px;
 }
 
@@ -237,7 +278,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   margin: 0 6px;
   min-width: 0;
 }
@@ -249,6 +290,13 @@
 .slope-upgrade-boost {
   font-size: 19px;
   font-variant-numeric: tabular-nums;
+}
+
+.slope-upgrade-kind {
+  font-family: var(--slope-text);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .slope-upgrade-price {
@@ -305,9 +353,20 @@
   .slope-upgrade-boost {
     font-size: 16px;
   }
+}
 
+/* Three tabs share a narrow screen. */
+@media (max-width: 520px) {
   .slope-tab {
     min-width: 0;
     flex: 1;
+    padding: 0 6px;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 400px) {
+  .slope-tab {
+    font-size: 14px;
   }
 }

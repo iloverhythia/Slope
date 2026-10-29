@@ -10,8 +10,10 @@
  * Gems are placed on stretches of track whose floor edges can be measured
  * from what the game draws, at the height of the floor the ball is rolling
  * on. Roll through one to collect it; it simply disappears. Each one is
- * worth the gem multiplier (upgrades.js); gems are saved to the profile and
- * spent in the shop. They have no effect on the game itself.
+ * worth the gem multiplier (upgrades.js), five times that if it is golden;
+ * the upgrade tree can also widen the pickup reach and add gems. Gems are
+ * saved to the profile and spent in the shop. They have no effect on the
+ * game itself.
  *
  *   SlopeGems.list()         gems still on the track (slope coordinates)
  *   SlopeGems.iconSvg(w, h)  the dot-matrix gem icon, as SVG markup
@@ -33,6 +35,13 @@
   var GAP_MIN = 20, GAP_MAX = 38;
   var EDGE_MARGIN = 1.1;        // keep away from the track's edges
   var PICKUP = { s: 0.95, x: 0.95, h: 1.6 };
+  var GOLD_WORTH = 5;           // a golden gem (the Lucky upgrade) counts as five
+
+  // Upgrade tree effects (upgrades.js), none without it.
+  function upgrade(name) {
+    var u = window.SlopeUpgrades;
+    return u && u[name] ? u[name]() : 0;
+  }
 
   // Slope directions in world space: up off the track, sideways, downhill.
   var NORMAL = [0, Math.SQRT1_2, Math.SQRT1_2];
@@ -86,12 +95,15 @@
       if (!range) { nextS = s + 4; continue; }
       var x = range.lo + Math.random() * (range.hi - range.lo);
       var line = Math.random() < 0.3 ? 3 : 1;
+      var luck = upgrade("luck");
       for (var i = 0; i < line; i++) {
         if (i && !trackRange(frame.pieces, s + i * 3.5)) break;
         if (adventure && !adventure.isClear(s + i * 3.5)) break; // never inside a level's obstacle
-        gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI });
+        gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI, gold: Math.random() < luck });
       }
-      nextS = s + GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN) + (line - 1) * 3.5;
+      // The More gems upgrade closes the gaps.
+      var denser = 1 + upgrade("spawn");
+      nextS = s + (GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN)) / denser + (line - 1) * 3.5;
     }
   }
 
@@ -121,12 +133,13 @@
   // Did the ball pass through the gem since the last frame? Checking the whole
   // path, not just where the ball is now, keeps fast balls and slow frames fair.
   function touches(g, from, to) {
+    var reach = 1 + upgrade("magnet");   // the Magnet upgrade reaches further sideways
     var lo = Math.min(from.s, to.s) - PICKUP.s, hi = Math.max(from.s, to.s) + PICKUP.s;
     if (g.s < lo || g.s > hi) return false;
     var span = to.s - from.s;
     var t = span ? Math.max(0, Math.min(1, (g.s - from.s) / span)) : 1;
     var x = from.x + (to.x - from.x) * t, h = from.h + (to.h - from.h) * t;
-    return Math.abs(g.x - x) < PICKUP.x && Math.abs(g.h - h) < PICKUP.h;
+    return Math.abs(g.x - x) < PICKUP.x * reach && Math.abs(g.h - h) < PICKUP.h;
   }
 
   game.on("frame", function (frame) {
@@ -147,8 +160,14 @@
     if (running) {
       if (floorH !== null && grounded > 3) spawnAhead(frame);
       var settle = 1 - Math.exp(-dt * 6);
+      var magnet = upgrade("magnet");
+      var pull = magnet ? 1 - Math.exp(-dt * 5 * Math.min(1, magnet * 2)) : 0;
       gems.forEach(function (g) {
         g.h += (floorH + REST - g.h) * settle; // follow the floor if it changes level
+        // With the Magnet upgrade, gems just ahead within reach drift to the ball.
+        if (pull && g.s > ball.s && g.s < ball.s + 6 && Math.abs(g.x - ball.x) < PICKUP.x * (1 + magnet) * 1.4) {
+          g.x += (ball.x - g.x) * pull;
+        }
         if (lastBall && touches(g, lastBall, ball)) collect(g);
       });
       gems = gems.filter(function (g) { return !g.taken && g.s > ball.s - 8; });
@@ -160,7 +179,7 @@
   function collect(g) {
     g.taken = true;
     run.pickups += 1;
-    var worth = window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1;
+    var worth = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (g.gold ? GOLD_WORTH : 1);
     if (window.SlopeProfile) run.gems += window.SlopeProfile.addGems(worth);
   }
 
@@ -189,11 +208,13 @@
     "precision mediump float;",
     "varying vec3 vBary;",
     "varying float vLight;",
+    "uniform float uGold;",
     "void main() {",
     "  float edge = min(min(vBary.x, vBary.y), vBary.z);",
     "  float line = 1.0 - smoothstep(0.045, 0.075, edge);",
-    "  vec3 face = vec3(0.0, 0.16, 0.01) * vLight;",
-    "  gl_FragColor = vec4(mix(face, vec3(0.3, 1.0, 0.3), line), 1.0);",
+    "  vec3 face = mix(vec3(0.0, 0.16, 0.01), vec3(0.3, 0.2, 0.0), uGold) * vLight;",
+    "  vec3 edgeColour = mix(vec3(0.3, 1.0, 0.3), vec3(1.0, 0.82, 0.2), uGold);",
+    "  gl_FragColor = vec4(mix(face, edgeColour, line), 1.0);",
     "}"
   ].join("\n");
 
@@ -250,7 +271,7 @@
       gl.vertexAttribPointer(i, 3, gl.FLOAT, false, 36, i * 12);
     }
     var u = {};
-    ["uViewProjection", "uCentre", "uSide", "uUp", "uDownhill", "uRadius"].forEach(function (name) {
+    ["uViewProjection", "uCentre", "uSide", "uUp", "uDownhill", "uRadius", "uGold"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     return { gl: gl, program: program, vertexArray: vertexArray, u: u };
@@ -266,10 +287,12 @@
     gl.bindVertexArray(res.vertexArray);
     gl.uniformMatrix4fv(res.u.uViewProjection, false, scene.vp);
     gl.uniform3fv(res.u.uUp, NORMAL);
-    gl.uniform1f(res.u.uRadius, GEM_RADIUS);
     var t = performance.now() / 1000;
     gems.forEach(function (g) {
-      var a = t * SPIN + g.turn, c = Math.cos(a), s = Math.sin(a);
+      // Golden gems are a little bigger and spin faster.
+      gl.uniform1f(res.u.uGold, g.gold ? 1 : 0);
+      gl.uniform1f(res.u.uRadius, GEM_RADIUS * (g.gold ? 1.15 : 1));
+      var a = t * SPIN * (g.gold ? 1.8 : 1) + g.turn, c = Math.cos(a), s = Math.sin(a);
       gl.uniform3fv(res.u.uCentre, game.toWorld(g.s, g.h, g.x));
       gl.uniform3f(res.u.uSide, SIDE[0] * c + DOWNHILL[0] * s, SIDE[1] * c + DOWNHILL[1] * s, SIDE[2] * c + DOWNHILL[2] * s);
       gl.uniform3f(res.u.uDownhill, DOWNHILL[0] * c - SIDE[0] * s, DOWNHILL[1] * c - SIDE[1] * s, DOWNHILL[2] * c - SIDE[2] * s);
@@ -318,7 +341,7 @@
   window.SlopeGems = {
     iconSvg: gemIcon,
     list: function () {
-      return gems.map(function (g) { return { s: g.s, x: g.x, h: g.h }; });
+      return gems.map(function (g) { return { s: g.s, x: g.x, h: g.h, gold: !!g.gold }; });
     },
     floor: function () { return floorH; },
     currentRun: function () {

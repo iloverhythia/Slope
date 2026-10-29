@@ -44,6 +44,7 @@
  *   SlopeGame.on("scene", function ({ gl, vp }) { ... })   WebGL2 only
  *   SlopeGame.paintBall(function ({ gl, vp, o2w, draw }) { ... return true; })
  *   SlopeGame.paintTrail(function ({ gl, program, draw }) { ... return true; })
+ *   SlopeGame.paintBackground(function ({ gl, vp, width, height }) { ... })   behind the scene, each frame
  *   SlopeGame.probeFloor([{ s, x }, ...], function (hits) { ... })   floor heights from the track geometry
  */
 (function () {
@@ -59,11 +60,13 @@
   var sceneWants = [];   // per "scene" handler: does it have anything to draw this frame?
   var ballPainter = null;
   var trailPainter = null;
+  var backgroundPainter = null;
   function on(name, fn, wants) {
     (handlers[name] = handlers[name] || []).push(fn);
     if (name === "scene") sceneWants.push(wants || function () { return true; });
   }
   var gameDrew = false;  // the game drew something in this animation frame
+  var frameMs = 16;      // time between the game's frames, smoothed
   function emit(name, data) {
     (handlers[name] || []).forEach(function (fn) {
       try { fn(data); } catch (e) { console.error(e); }
@@ -261,11 +264,11 @@
     var SWITCHES = gl.createVertexArray ? [gl.BLEND, gl.DEPTH_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.SCISSOR_TEST,
       gl.POLYGON_OFFSET_FILL, gl.SAMPLE_ALPHA_TO_COVERAGE, gl.SAMPLE_COVERAGE, gl.RASTERIZER_DISCARD] : [];
 
-    // The state it changes is tracked as the game sets it, so saving it needs
-    // no queries (a query like getParameter(DEPTH_FUNC) can stall the GPU).
-    function drawScene(viewProjection) {
-      if (!handlers.scene || !gl.createVertexArray) return;
-      if (!sceneWants.some(function (w) { try { return w(); } catch (e) { return false; } })) return;
+    // Runs draw() with the switches set by setup(), then puts back the game's
+    // state. The state it changes is tracked as the game sets it, so saving
+    // it needs no queries (a query like getParameter(DEPTH_FUNC) can stall
+    // the GPU).
+    function isolated(setup, draw) {
       var saved = {
         program: currentProgram,
         vertexArray: currentVao,
@@ -276,12 +279,9 @@
         colorMask: colorMaskNow.slice(),
         tracked: { vao: vao, arrayBuffer: arrayBuffer }
       };
-      SWITCHES.forEach(function (c) { if (c === gl.DEPTH_TEST) gl.enable(c); else gl.disable(c); });
-      gl.depthFunc(gl.LEQUAL);
-      gl.depthMask(true);
-      gl.colorMask(true, true, true, true);
+      setup(saved);
       try {
-        emit("scene", { gl: gl, vp: viewProjection });
+        draw();
       } finally {
         gl.useProgram(saved.program);
         raw.bindVertexArray.call(gl, saved.vertexArray);
@@ -295,6 +295,157 @@
         arrayBuffer = saved.tracked.arrayBuffer;
       }
     }
+
+    function drawScene(viewProjection) {
+      if (!handlers.scene || !gl.createVertexArray) return;
+      if (!sceneWants.some(function (w) { try { return w(); } catch (e) { return false; } })) return;
+      isolated(function () {
+        SWITCHES.forEach(function (c) { if (c === gl.DEPTH_TEST) gl.enable(c); else gl.disable(c); });
+        gl.depthFunc(gl.LEQUAL);
+        gl.depthMask(true);
+        gl.colorMask(true, true, true, true);
+      }, function () {
+        emit("scene", { gl: gl, vp: viewProjection });
+      });
+    }
+
+    // A background painter draws right after the camera's clear (colour and
+    // depth, on screen), with no depth test or depth writes, so everything
+    // the game draws lands on top of it. The clear's alpha is left alone and
+    // the game's scissor rectangle still applies.
+    //
+    // Backgrounds are soft and full screen, so they are drawn into a small
+    // image (about BACKGROUND_PIXELS) and stretched over the screen: one
+    // texture read a pixel instead of the whole background shader. That pass
+    // uses the browser's own framebuffer and viewport calls, past the
+    // wrappers here and in quality.js, and puts back everything the game's
+    // own state cache expects.
+    //
+    // On a slow device (long frames) the image is redrawn only every second
+    // or third frame, and stretched over the screen every frame.
+    var BACKGROUND_PIXELS = 250000;
+    var bgEvery = 1, bgCount = 0;
+    var sceneVp = null;   // the last view-projection the 3D scene was drawn with
+    var activeTextureNow = gl.TEXTURE0;
+    wrap("activeTexture", function (a) { activeTextureNow = a[0]; });
+    var native = window.WebGL2RenderingContext && WebGL2RenderingContext.prototype;
+    var bgTarget = null;
+
+    function compile(vs, fs) {
+      function shader(type, src) {
+        var sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+        return sh;
+      }
+      var program = gl.createProgram();
+      gl.attachShader(program, shader(gl.VERTEX_SHADER, vs));
+      gl.attachShader(program, shader(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+      return program;
+    }
+
+    function backgroundTarget(w, h) {
+      var t = bgTarget;
+      if (!t) {
+        t = bgTarget = { w: 0, h: 0, fbo: gl.createFramebuffer(), vao: gl.createVertexArray(), texture: null };
+        t.program = compile([
+          "#version 300 es",
+          "void main() {",
+          "  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));",
+          "  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);",
+          "}"].join("\n"), [
+          "#version 300 es",
+          "precision mediump float;",
+          "uniform sampler2D uImage;",
+          "uniform vec2 uSize;",
+          "out vec4 outColor;",
+          "void main() { outColor = vec4(texture(uImage, gl_FragCoord.xy / uSize).rgb, 1.0); }"].join("\n"));
+        t.uImage = gl.getUniformLocation(t.program, "uImage");
+        t.uSize = gl.getUniformLocation(t.program, "uSize");
+        t.unit = Math.min(gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS), 32) - 1;
+      }
+      if (t.w !== w || t.h !== h) {
+        withUnit(t.unit, function () {
+          if (t.texture) gl.deleteTexture(t.texture);
+          t.texture = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, t.texture);
+          gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        });
+        native.bindFramebuffer.call(gl, DRAW_FRAMEBUFFER, t.fbo);
+        gl.framebufferTexture2D(DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.texture, 0);
+        native.bindFramebuffer.call(gl, DRAW_FRAMEBUFFER, null);
+        t.w = w; t.h = h;
+      }
+      return t;
+    }
+
+    // Runs fn with texture unit `unit` active, then puts back that unit's
+    // texture and the active unit.
+    function withUnit(unit, fn) {
+      var before = activeTextureNow;
+      native.activeTexture.call(gl, gl.TEXTURE0 + unit);
+      var bound = gl.getParameter(gl.TEXTURE_BINDING_2D);
+      try { fn(); } finally {
+        gl.bindTexture(gl.TEXTURE_2D, bound);
+        native.activeTexture.call(gl, before);
+      }
+    }
+
+    function drawBackground() {
+      isolated(function () {
+        SWITCHES.forEach(function (c) { if (c !== gl.SCISSOR_TEST) gl.disable(c); });
+        gl.depthMask(false);
+        gl.colorMask(true, true, true, false);
+      }, function () {
+        try {
+          var W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
+          var k = Math.max(1, Math.sqrt(W * H / BACKGROUND_PIXELS));
+          var w = Math.max(1, Math.round(W / k)), h = Math.max(1, Math.round(H / k));
+          var fresh = !bgTarget || bgTarget.w !== w || bgTarget.h !== h;
+          var t = backgroundTarget(w, h);
+          if (frameMs > (bgEvery === 1 ? 24 : 46)) bgEvery = Math.min(3, bgEvery + 1);
+          else if (frameMs < (bgEvery === 3 ? 34 : 18)) bgEvery = Math.max(1, bgEvery - 1);
+          if (fresh || ++bgCount >= bgEvery) { bgCount = 0; paintBackgroundImage(t, w, h); }
+          // Stretch it over the screen.
+          gl.useProgram(t.program);
+          gl.bindVertexArray(t.vao);
+          withUnit(t.unit, function () {
+            gl.bindTexture(gl.TEXTURE_2D, t.texture);
+            gl.uniform1i(t.uImage, t.unit);
+            gl.uniform2f(t.uSize, W, H);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    }
+
+    function paintBackgroundImage(t, w, h) {
+      var view = gl.getParameter(gl.VIEWPORT), scissor = gl.isEnabled(gl.SCISSOR_TEST);
+      native.bindFramebuffer.call(gl, DRAW_FRAMEBUFFER, t.fbo);
+      native.viewport.call(gl, 0, 0, w, h);
+      if (scissor) gl.disable(gl.SCISSOR_TEST);
+      try {
+        backgroundPainter({ gl: gl, vp: sceneVp, width: w, height: h });
+      } finally {
+        native.bindFramebuffer.call(gl, DRAW_FRAMEBUFFER, null);
+        native.viewport.call(gl, view[0], view[1], view[2], view[3]);
+        if (scissor) gl.enable(gl.SCISSOR_TEST);
+      }
+    }
+    wrap("clear", function (a) {
+      var mask = a[0];
+      if (backgroundPainter && onScreen && native && gl.createVertexArray && (mask & gl.COLOR_BUFFER_BIT) && (mask & gl.DEPTH_BUFFER_BIT) &&
+          colorMaskNow[0] && colorMaskNow[1] && colorMaskNow[2]) drawBackground();
+    });
 
     // The speed-up trail is drawn with the game's only shader that multiplies
     // a texture by vertex colours. Keep each program's sources so it can be
@@ -443,6 +594,7 @@
     gl.drawElements = function (mode, count) {
       gameDrew = true;
       var seen = onScreen && vp && o2w && isPerspective(vp);
+      if (seen) sceneVp = vp;
       var isBall = seen && count === BALL_INDEX_COUNT;
       var painted = isBall ? paintBall(arguments) : isTrail() && paintTrail(arguments, "drawElements");
       if (!painted) raw.drawElements.apply(gl, arguments);
@@ -510,7 +662,10 @@
         callback(time);
       } finally {
         if (gameDrew && time !== lastFrameTime) {
-          if (lastFrameTime !== null) gameTime += Math.min(Math.max(0, time - lastFrameTime) / 1000, 1 / 3);
+          if (lastFrameTime !== null) {
+            gameTime += Math.min(Math.max(0, time - lastFrameTime) / 1000, 1 / 3);
+            frameMs += (Math.min(200, Math.max(0, time - lastFrameTime)) - frameMs) * 0.1;
+          }
           lastFrameTime = time;
         }
         if (frame) {
@@ -547,6 +702,7 @@
     paused: function () { return paused; },
     paintBall: function (fn) { ballPainter = fn || null; },
     paintTrail: function (fn) { trailPainter = fn || null; },
+    paintBackground: function (fn) { backgroundPainter = fn || null; },
     // Ask for the surfaces under points [{ s, x }]. done(hits) runs after the
     // next frame the game draws, with one array of { h, flat } per point, or
     // null if that frame had no ball (no 3D scene).
