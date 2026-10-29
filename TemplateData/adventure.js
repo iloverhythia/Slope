@@ -5,9 +5,19 @@
  * Every level is a run of the normal game with a finish line and its own
  * set of obstacles, drawn into the game's 3D scene in the game's style
  * (black boxes with red neon edges): blocks, walls with a gap, sliders,
- * lasers that switch on and off, pillars that rise from the floor and
- * spinning bars. Levels 1 to 6 bring in one new obstacle each; after that
- * every level mixes two or three, and they get denser and faster.
+ * lasers that switch on and off, pillars that rise from the floor, spinning
+ * bars, walls whose gap slides, pendulums, blocks that drop from the sky,
+ * rams that charge up and down the slope, spikes, orbiting blocks and
+ * slalom gates.
+ *
+ * Some stretches of track are other kinds of slope, with their own floor:
+ * a narrow winding trench, lava with a safe path through it, boost (the game
+ * speeds up), ice (turns slide on after the key is let go) and wind (gusts
+ * push the ball sideways; steer.js changes what the game hears from the keys).
+ *
+ * Levels 1 to 18 bring in one new obstacle or slope each; after that every
+ * level mixes two or three obstacles and often a slope or two, and they get
+ * quicker and a little denser.
  *
  * Obstacles are put on the track only once the track under them exists, on
  * its real floor (heights and edges come from the track's own geometry,
@@ -28,6 +38,8 @@
  *   SlopeAdventure.setEndless(on) Advanced mode: normal runs get endless obstacles
  *   SlopeAdventure.dodged()      obstacles passed in the Advanced run
  *   SlopeAdventure.obstacles()   the obstacles on the track now
+ *   SlopeAdventure.slope()       the slope the ball is on ("normal", "narrow", "lava", "boost", "ice", "wind")
+ *   SlopeAdventure.zones()       the run's stretches of other slopes (slope coordinates)
  */
 (function () {
   "use strict";
@@ -54,6 +66,7 @@
   var LANE_SLACK = LANE - 2 * BALL_RADIUS - 0.2;  // shift that needs no steering
   var RED = [1.0, 0.08, 0.06];
   var WHITE = [1.0, 1.0, 1.0];
+  var GREEN = [0.3, 1.0, 0.3];   // the game's own neon (tinted with the track colour)
   var LEVEL_STEP = 18;           // levels added to the grid at a time
   var MAX_LENGTH = 1000;         // no level is longer than this (metres)
 
@@ -70,9 +83,48 @@
     slider: { name: "Sliders", hit: "a slider" },
     laser: { name: "Lasers", hit: "a laser" },
     pillar: { name: "Pillars", hit: "a pillar" },
-    spinner: { name: "Spinners", hit: "a spinner" }
+    spinner: { name: "Spinners", hit: "a spinner" },
+    door: { name: "Doors", hit: "a sliding door", text: "The gap in the wall slides to and fro" },
+    pendulum: { name: "Pendulums", hit: "a pendulum", text: "Weights swing beside your lane" },
+    dropper: { name: "Droppers", hit: "a falling block", text: "Blocks drop where the red marks are" },
+    ram: { name: "Rams", hit: "a ram", text: "Blocks charge up and down the slope" },
+    spikes: { name: "Spikes", hit: "the spikes", text: "Spikes pop up beside your lane" },
+    orbiter: { name: "Orbiters", hit: "an orbiter", text: "Blocks circle around a post" },
+    slalom: { name: "Slalom", hit: "a slalom gate", text: "Weave left and right through the gates" },
+    // The parts of the narrow and lava slopes.
+    narrow: { name: "Narrow slope", hit: "the side of the trench" },
+    lava: { name: "Lava slope", hit: "the lava" }
   };
-  var ORDER = ["block", "wall", "slider", "laser", "pillar", "spinner"];
+  var ORDER = ["block", "wall", "slider", "laser", "pillar", "spinner",
+    "door", "pendulum", "dropper", "ram", "spikes", "orbiter", "slalom"];
+
+  // Stretches of track that are another kind of slope. path: a winding
+  // path to follow (built of parts); the others change how the ball handles.
+  var SLOPES = {
+    narrow: { name: "Narrow slope", short: "Narrow", text: "Stay in the winding trench", path: true },
+    lava: { name: "Lava slope", short: "Lava", text: "Keep to the dark path", path: true },
+    boost: { name: "Boost slope", short: "Boost", text: "Everything speeds up" },
+    ice: { name: "Ice slope", short: "Ice", text: "Turns slide on after you let go" },
+    wind: { name: "Wind slope", short: "Wind", text: "Gusts push you sideways" }
+  };
+  var SLOPE_ORDER = ["narrow", "boost", "ice", "lava", "wind"];
+  // Levels 1 to 18 each bring in one new obstacle or slope.
+  var INTRO = ["block", "wall", "slider", "laser", "pillar", "spinner", "door", "narrow", "pendulum",
+    "dropper", "boost", "ram", "spikes", "ice", "orbiter", "slalom", "lava", "wind"];
+
+  // How far an obstacle reaches along the slope from its centre: the lanes
+  // before and after it must be reachable around it.
+  var DEPTH = { spinner: 3.5, ram: 3.8, orbiter: 2.5, pendulum: 3.4, dropper: 0.8, spikes: 0.8 };
+  var ROOMY = { slider: 1, spinner: 1, pendulum: 1, orbiter: 1, dropper: 1, ram: 1 };
+  function depthOf(kind) { return DEPTH[kind] || 0.7; }
+
+  // Floor panel looks (the fragment shader's uStyle).
+  var STYLE = { box: 0, lava: 1, boost: 2, ice: 3, wind: 4, mark: 5 };
+  var PATH = { narrow: 3.6, lava: 3.0 };   // the open path through a narrow or lava slope (the ball is 1)
+  var SEGMENT = 3;               // slopes are built in pieces this long
+  var BOOST = 1.3;               // game speed on a boost slope
+  var ICE_SLIDE = 0.2;           // seconds a turn slides on, on ice
+  var WIND_SHARE = 0.25;         // share of the time a gust pushes, on a wind slope
 
   // Small seeded random generator (mulberry32): the same level is the same every time.
   function seeded(seed) {
@@ -85,43 +137,114 @@
     };
   }
 
+  // count different items from list (seeded).
+  function pick(random, list, count) {
+    var pool = list.slice(), out = [];
+    while (out.length < count && pool.length) out.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
+    return out;
+  }
+
   function levelSpec(n) {
     var random = seeded(n * 7919 + 13);
-    var kinds;
-    if (n <= ORDER.length) {
+    var fresh = n <= INTRO.length ? INTRO[n - 1] : null;   // what the level brings in
+    var metKinds = INTRO.slice(0, Math.min(n - 1, INTRO.length)).filter(function (k) { return !SLOPES[k]; });
+    var kinds, slopes = [];
+    if (n <= 6) {
       // One new obstacle per level, mixed with the ones before it.
       kinds = [ORDER[n - 1]].concat(ORDER.slice(0, n - 1));
+    } else if (fresh && !SLOPES[fresh]) {
+      kinds = [fresh].concat(pick(random, metKinds, 2));
+    } else if (fresh) {
+      slopes = [fresh];
+      kinds = pick(random, metKinds, 2);
     } else {
-      var pool = ORDER.slice();
-      kinds = [];
-      var count = 2 + Math.floor(random() * 2);
-      while (kinds.length < count) kinds.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
+      kinds = pick(random, ORDER, 2 + Math.floor(random() * 2));
+      var r = random();
+      if (r < 0.7) slopes = pick(random, SLOPE_ORDER, r < 0.2 ? 2 : 1);
     }
-    var hard = Math.min(1, (n - 1) / 30);
+    var hard = Math.min(1, (n - 1) / 40);
     return {
       n: n,
       kinds: kinds,                     // kinds[0] is the level's main obstacle
+      slopes: slopes,                   // the other slopes on its stretches
+      fresh: fresh,
       length: Math.min(MAX_LENGTH, 240 + 45 * (n - 1)),   // metres down the slope
-      gap: 22 - 12 * hard,              // track between obstacles
+      gap: 34 - 16 * hard,              // track between obstacles
       tempo: 1 + 0.8 * hard,            // speed of moving obstacles
-      pairs: n >= 8,                    // some obstacles come two at a time
+      pairs: n >= 12,                   // some obstacles come two at a time
       seed: n * 7919 + 13,
-      title: n <= ORDER.length || kinds.length === 1
-        ? KINDS[kinds[0]].name
-        : kinds.map(function (k) { return KINDS[k].name; }).join(" + ")
+      title: fresh ? (SLOPES[fresh] || KINDS[fresh]).name
+        : slopes.map(function (k) { return SLOPES[k].short; })
+          .concat(kinds.map(function (k) { return KINDS[k].name; })).join(" + ")
     };
+  }
+
+  // One obstacle at `at` (a slalom is three gates that switch sides);
+  // returns where the next one may go.
+  function addObstacle(plan, kind, at, random, gap, spec) {
+    if (kind === "slalom") {
+      var first = random() < 0.5 ? 0.02 : 0.98;
+      for (var i = 0; i < 3; i++) {
+        plan.push({ kind: kind, at: at + i * 8, a: i % 2 ? 1 - first : first, b: random(), c: random(), spec: spec });
+      }
+      at += 16;
+    } else {
+      plan.push({ kind: kind, at: at, a: random(), b: random(), c: random(), spec: spec });
+    }
+    return at + gap * (0.8 + random() * 0.5) + depthOf(kind) * 1.5;
+  }
+
+  // The stretches of other slopes in a level: [{ type, from, to, dir }],
+  // in metres from the start. dir: which way the wind blows.
+  function planZones(spec, random) {
+    var zones = [];
+    if (!spec.slopes.length) return zones;
+    var intro = !!SLOPES[spec.fresh];
+    var at = intro ? 50 : 70 + random() * 40;
+    for (var i = 0; ; i++) {
+      var type = spec.slopes[i % spec.slopes.length], path = SLOPES[type].path;
+      var len = ((path ? 40 : 60) + random() * (path ? 25 : 40)) * (intro ? 1.3 : 1);
+      if (at + len > spec.length - 35) break;
+      zones.push({ type: type, from: at, to: at + len, dir: random() < 0.5 ? -1 : 1 });
+      at += len + (intro ? 45 + random() * 30 : 90 + random() * 70);
+    }
+    return zones;
+  }
+
+  // The pieces of a slope stretch, one every SEGMENT metres: a narrow or lava
+  // path winds (step: which way it bends there), the others are floor panels.
+  function addZone(plan, zone, random, spec) {
+    var path = SLOPES[zone.type].path, phase = random() * 2 * Math.PI;
+    for (var k = 0, at = zone.from; at <= zone.to; k++, at += SEGMENT) {
+      plan.push(path
+        ? { kind: zone.type, at: at, a: random(), b: 0, c: 0, step: Math.sin(phase + k * 0.3), first: k === 0, zone: zone, spec: spec }
+        : { kind: "panel", at: at, a: 0, b: 0, c: 0, zone: zone, panel: true, spec: spec });
+    }
+  }
+
+  function zoneAt(zones, at, margin) {
+    for (var i = 0; i < zones.length; i++) {
+      if (at > zones[i].from - margin && at < zones[i].to + margin) return zones[i];
+    }
+    return null;
   }
 
   function planLevel(spec) {
     var random = seeded(spec.seed + 1);
+    var zones = planZones(spec, random);
     var plan = [];
     var at = FIRST_OBSTACLE;
     while (at < spec.length - 25) {
       var kind = random() < 0.55 ? spec.kinds[0] : spec.kinds[Math.floor(random() * spec.kinds.length)];
-      plan.push({ kind: kind, at: at, a: random(), b: random(), c: random() });
-      at += spec.gap * (0.8 + random() * 0.5) + (kind === "spinner" ? 6 : 0);
+      // A narrow or lava stretch is the obstacle there.
+      var zone = zoneAt(zones, at, 10) || zoneAt(zones, at + (kind === "slalom" ? 16 : 0), 10);
+      if (zone && SLOPES[zone.type].path) { at = zone.to + 12 + random() * 8; continue; }
+      at = addObstacle(plan, kind, at, random, spec.gap);
     }
+    zones.forEach(function (z) { addZone(plan, z, random); });
     plan.push({ kind: "finish", at: spec.length, a: 0, b: 0, c: 0 });
+    plan.sort(function (p, q) { return p.at - q.at; });
+    plan.zones = zones;
     return plan;
   }
 
@@ -145,33 +268,46 @@
   // a lane at least LANE wide that stays open the whole time, and only puts
   // its parts outside it. (A laser across the whole track, for example, could
   // only be passed by luck: the ball can't slow down or jump.)
-  function buildObstacle(item, s, track, spec, reach) {
+  function buildObstacle(item, s, track, spec, reach, speed) {
     if (item.kind === "finish") return finishLine(s, track);
+    if (item.kind === "panel") return slopePanel(item, s, track);
     var cx = track.cx, hw = track.hw;
     var x0 = cx - hw, x1 = cx + hw;
-    if (x1 - x0 < LANE + 1.2) return []; // a narrow beam: nothing fits beside the lane
+    var path = !!SLOPES[item.kind];      // a piece of a narrow or lava slope
+    var open = path ? PATH[item.kind] : LANE;   // the width kept open
+    if (x1 - x0 < open + 1.2) return []; // a narrow beam: nothing fits beside the lane
     var w = 2 * Math.PI;
     var t = spec.tempo;
     var parts = [];
     // The open lane, and the floor on each side of it.
-    var lo = x0 + LANE / 2, hi = x1 - LANE / 2;
+    var lo = x0 + open / 2, hi = x1 - open / 2;
+    var prev = reach ? (reach[0] + reach[1]) / 2 : null;
     if (reach) {
       // No lane within reach (the track itself moves over there): left out.
       if (reach[0] > hi || reach[1] < lo) return [];
       lo = Math.max(lo, reach[0]);
       hi = Math.min(hi, reach[1]);
     }
-    var lane = lo + item.a * (hi - lo);
-    var sides = [{ a: x0, b: lane - LANE / 2 }, { a: lane + LANE / 2, b: x1 }]
+    // Obstacles that need room on one side put the lane near an edge.
+    var a = ROOMY[item.kind] ? (item.a < 0.5 ? item.a * 0.2 : 1 - (1 - item.a) * 0.2) : item.a;
+    var lane = lo + a * (hi - lo);
+    if (path && !item.first && prev !== null) {
+      // A slope's path bends smoothly, never faster than the ball can follow.
+      var fast = Math.max(12, (speed || 0) * 1.2 + 12);
+      lane = Math.max(lo, Math.min(hi, prev + item.step * Math.min(0.6, STEER * SEGMENT / fast)));
+    }
+    var sides = [{ a: x0, b: lane - open / 2 }, { a: lane + open / 2, b: x1 }]
       .filter(function (r) { return r.b - r.a > 0.05; });
     var wide = sides.slice().sort(function (p, q) { return (q.b - q.a) - (p.b - p.a); })[0];
     function within(r, half, v) { return r.a + half + v * Math.max(0, r.b - r.a - 2 * half); }
+    // Obstacles on one side only, unless pairs are on and this one comes as a pair.
+    function used(r) { return r === wide || (spec.pairs && item.c < 0.35); }
     switch (item.kind) {
       case "block":
-        // One block (two from level 8) beside the lane.
+        // One block (two in some later levels) beside the lane.
         sides.forEach(function (r, i) {
           if (r.b - r.a < 1.1) return;
-          if (r === wide || (spec.pairs && item.c < 0.5)) parts.push(box(s, within(r, 0.55, i ? item.b : item.c), 0.55, 0.55, 0.55));
+          if (used(r)) parts.push(box(s, within(r, 0.55, i ? item.b : item.c), 0.55, 0.55, 0.55));
         });
         break;
       case "wall":
@@ -205,8 +341,7 @@
       case "pillar":
         // Pillars rise and sink beside the lane.
         sides.forEach(function (r, i) {
-          if (r.b - r.a < 1.4) return;
-          if (r !== wide && !(spec.pairs && item.c < 0.5)) return;
+          if (r.b - r.a < 1.4 || !used(r)) return;
           (function (px, phase) {
             var span = 2.6 / t;
             parts.push(box(s, px, 0.7, 0.7, 1.1, {
@@ -224,21 +359,157 @@
         var r = (wide.b - wide.a) / 2;
         if (r < 1.0) break;
         var hub = (wide.a + wide.b) / 2;
-        var speed = (item.b < 0.5 ? 1 : -1) * w / (3.4 / t), start = item.c * w;
-        parts.push(box(s, hub, r - 0.1, 0.22, 0.45, { move: function (p, now) { p.turn = start + now * speed; } }));
+        var speedTurn = (item.b < 0.5 ? 1 : -1) * w / (3.4 / t), start = item.c * w;
+        parts.push(box(s, hub, r - 0.1, 0.22, 0.45, { move: function (p, now) { p.turn = start + now * speedTurn; } }));
         parts.push(box(s, hub, 0.3, 0.3, 0.6, { solid: true })); // the hub
         break;
+      case "door":
+        // A wall whose gap slides to and fro; the lane always stays inside the gap.
+        var swing = Math.max(0.5, Math.min(1.4, (x1 - x0 - LANE) / 4)), doorPeriod = 3 / t, doorPhase = item.b * w;
+        [-1, 1].forEach(function (side) {
+          parts.push(box(s, lane, 0.1, 0.35, 0.5, {
+            move: function (p, now) {
+              var o = swing * Math.sin(now * w / doorPeriod + doorPhase);
+              if (side < 0) span(p, x0, lane - LANE / 2 - swing + o);
+              else span(p, lane + LANE / 2 + swing + o, x1);
+            }
+          }));
+        });
+        break;
+      case "pendulum":
+        // A weight swings from a beam overhead, on its side of the lane:
+        // sideways where that side is wide, along the slope where it isn't.
+        var half = (wide.b - wide.a) / 2;
+        if (half < 0.6) break;
+        var ARM = 3.6, top = ARM + 0.52, centre = (wide.a + wide.b) / 2;
+        var across = half - 0.75 >= 1.0;
+        var most = across ? Math.asin(Math.min(0.6, (half - 0.75) / ARM)) : 0.7;
+        var swingPeriod = 2.6 / t, swingPhase = item.b * w;
+        var angle = function (now) { return most * Math.sin(now * w / swingPeriod + swingPhase); };
+        var hang = function (p, now, len) {
+          var a = angle(now);
+          if (across) { p.x = centre + len * Math.sin(a); p.roll = a; }
+          else { p.s = s + len * Math.sin(a); p.pitch = a; }
+          p.lift = top - len * Math.cos(a) - p.hh;
+        };
+        // A post at the track's edge and a beam from it over the weight.
+        var outer = wide.a <= x0 + 0.01 ? wide.a + 0.12 : wide.b - 0.12;
+        parts.push(box(s, outer, 0.12, 0.12, top / 2));
+        parts.push(across ? box(s, centre, half, 0.18, 0.12, { solid: false, lift: top - 0.12 })
+          : box(s, (outer + centre) / 2, Math.abs(outer - centre) / 2 + 0.12, 0.18, 0.12, { solid: false, lift: top - 0.12 }));
+        parts.push(box(s, centre, 0.06, 0.06, ARM / 2, { solid: false, move: function (p, now) { hang(p, now, ARM / 2); } }));
+        parts.push(box(s, centre, 0.5, 0.5, 0.5, { move: function (p, now) { hang(p, now, ARM); } }));
+        break;
+      case "dropper":
+        // Blocks fall from the sky beside the lane, rest a moment and rise
+        // again; a red mark on the floor shows where they land.
+        var dropPeriod = 3 / t;
+        sides.forEach(function (r, i) {
+          if (r.b - r.a < 1.5 || !used(r)) return;
+          var px = within(r, 0.75, i ? item.b : item.c), phase = item.c + i * 0.5;
+          var high = function (now) {
+            var k = ((now / dropPeriod + phase) % 1 + 1) % 1;
+            if (k < 0.4) return 1;                                         // waiting up high
+            if (k < 0.5) { var f = (k - 0.4) / 0.1; return 1 - f * f; }    // falling
+            if (k < 0.75) return 0;                                        // down
+            return (k - 0.75) / 0.25;                                      // going back up
+          };
+          parts.push(box(s, px, 0.75, 0.75, 0.005, { solid: false, lift: 0.03, style: STYLE.mark,
+            move: function (p, now) { p.glow = 1 - high(now); } }));
+          parts.push(box(s, px, 0.7, 0.7, 0.7, { move: function (p, now) { p.lift = high(now) * 5.5; } }));
+        });
+        break;
+      case "ram":
+        // Blocks charge up and down the slope beside the lane.
+        var ramPeriod = 3.2 / t;
+        sides.forEach(function (r, i) {
+          if (r.b - r.a < 1.5 || !used(r)) return;
+          var px = within(r, 0.7, i ? item.b : item.c), phase = (item.b + i * 0.5) * w;
+          parts.push(box(s, px, 0.7, 0.7, 0.7, { move: function (p, now) { p.s = s + 3 * Math.sin(now * w / ramPeriod + phase); } }));
+        });
+        break;
+      case "spikes":
+        // Two rows of spikes beside the lane pop up and sink in a wave.
+        var spikePeriod = 2.4 / t;
+        sides.forEach(function (r) {
+          var width = r.b - r.a;
+          if (width < 0.6) return;
+          var count = Math.max(1, Math.floor(width / 0.7));
+          for (var k = 0; k < count; k++) {
+            [-0.6, 0.6].forEach(function (ds, row) {
+              var px = r.a + (k + 0.5) * width / count, phase = item.b * w - px * 0.8 - row * 0.6;
+              parts.push(box(s + ds, px, 0.15, 0.15, 0.55, { glow: 0.25, move: function (p, now) {
+                var up = Math.min(1, Math.max(0, 0.5 + 1.2 * Math.sin(now * w / spikePeriod + phase)));
+                p.lift = (up - 1) * 1.15;
+              } }));
+            });
+          }
+        });
+        break;
+      case "orbiter":
+        // Two blocks circle a post on their side of the lane.
+        var radius = Math.min(2.0, (wide.b - wide.a) / 2 - 0.6);
+        if (radius < 0.6) break;
+        var post = (wide.a + wide.b) / 2, spin = (item.b < 0.5 ? 1 : -1) * w / (3 / t), from = item.c * w;
+        parts.push(box(s, post, 0.22, 0.22, 0.9));
+        [0, Math.PI].forEach(function (off) {
+          parts.push(box(s, post, 0.45, 0.45, 0.45, { move: function (p, now) {
+            var a = from + off + now * spin;
+            p.x = post + radius * Math.cos(a); p.s = s + radius * Math.sin(a); p.turn = a;
+          } }));
+        });
+        break;
+      case "slalom":
+        // A gate: a tall lit wall with the lane as its gap. The three gates
+        // of a slalom put their gaps on alternate sides.
+        sides.forEach(function (r) { parts.push(box(s, (r.a + r.b) / 2, (r.b - r.a) / 2, 0.2, 0.8, { glow: 0.35 })); });
+        break;
+      case "narrow":
+        // A narrow slope: the floor beside the path is walled off, low, so
+        // the path is a winding trench.
+        sides.forEach(function (r) { parts.push(box(s, (r.a + r.b) / 2, (r.b - r.a) / 2, SEGMENT / 2, 0.3)); });
+        break;
+      case "lava":
+        // A lava slope: the floor beside the path is lava.
+        sides.forEach(function (r) {
+          parts.push(box(s, (r.a + r.b) / 2, (r.b - r.a) / 2, SEGMENT / 2, 0.01, { lift: 0.03, style: STYLE.lava, hazard: true }));
+        });
+        break;
     }
-    parts.forEach(function (p) { p.kind = item.kind; p.base = track.h; });
+    var at = now();
+    parts.forEach(function (p) {
+      p.kind = item.kind;
+      p.base = track.h;
+      if (p.move) p.move(p, at);
+    });
     parts.lane = lane;
     return parts;
+  }
+
+  // A part that spans a to b sideways; hidden when there is nothing left of it.
+  function span(p, a, b) {
+    if (b - a < 0.08) { p.hidden = true; p.solid = false; return; }
+    p.hidden = false;
+    p.solid = true;
+    p.x = (a + b) / 2;
+    p.hx = (b - a) / 2;
+  }
+
+  // A floor panel of a boost, ice or wind slope, across the whole track.
+  function slopePanel(item, s, track) {
+    var z = item.zone;
+    var p = box(s, track.cx, track.hw, SEGMENT / 2, 0.01, { solid: false, lift: 0.03, style: STYLE[z.type], dir: z.dir,
+      color: z.type === "boost" ? GREEN : WHITE });
+    p.kind = "panel";
+    p.base = track.h;
+    return [p];
   }
 
   // Where the next lane may be: within reach of the last one at the speed the
   // ball may have by then (it speeds up quickly, so allow for more).
   function laneReach(last, s, kind, speed) {
     if (!last) return null;
-    var room = s - last.s - 2 * BALL_RADIUS - last.depth - (kind === "spinner" ? 3.5 : 0.7);
+    var room = s - last.s - 2 * BALL_RADIUS - last.depth - depthOf(kind);
     var fast = Math.max(12, speed * 1.2 + 12);
     var shift = LANE_SLACK + STEER * Math.max(0, room) / fast;
     return [last.x - shift, last.x + shift];
@@ -306,23 +577,47 @@
   }
 
   // Ask where the floor is at an upcoming obstacle; the answer comes with the
-  // next frame the game draws.
-  var PROBE_ROWS = [-1.5, 0, 1.5];
+  // next frame the game draws. The rows cover as much of the slope as the
+  // obstacle does.
+  function probeRows(kind) {
+    if (kind === "ram") return [-3.5, -1.75, 0, 1.75, 3.5];
+    if (kind === "orbiter" || kind === "pendulum") return [-2.5, 0, 2.5];
+    if (kind === "panel" || SLOPES[kind]) return [-1.4, 0, 1.4];
+    return [-1.5, 0, 1.5];
+  }
 
   function probe(item, s, x, ref, below) {
     var xs = [], points = [];
+    var rowsAt = probeRows(item.kind);
     for (var dx = -PROBE_REACH; dx <= PROBE_REACH + 1e-6; dx += PROBE_STEP) xs.push(x + dx);
-    PROBE_ROWS.forEach(function (ds) {
+    rowsAt.forEach(function (ds) {
       xs.forEach(function (px) { points.push({ s: s + ds, x: px }); });
     });
     item.state = "probing";
     var forRun = run;
     game.probeFloor(points, function (hits) {
       if (run !== forRun || item.state !== "probing") return;
-      var rows = hits ? PROBE_ROWS.map(function (ds, r) { return hits.slice(r * xs.length, (r + 1) * xs.length); }) : null;
+      var rows = hits ? rowsAt.map(function (ds, r) { return hits.slice(r * xs.length, (r + 1) * xs.length); }) : null;
       var floor = rows ? floorRow(xs, rows, x, ref, below) : null;
       item.floor = floor;
       item.state = floor ? "found" : "waiting";
+    });
+  }
+
+  // In the air: the highest floor right under the ball (answered next frame).
+  function probeLanding(ball) {
+    if (run.landingAsked) return;
+    run.landingAsked = true;
+    var forRun = run, top = ball.h - 0.4;
+    game.probeFloor([{ s: ball.s, x: ball.x }], function (hits) {
+      if (run !== forRun) return;
+      run.landingAsked = false;
+      var best = null;
+      ((hits && hits[0]) || []).forEach(function (hit) {
+        if (hit.flat && hit.h < top && (best === null || hit.h > best)) best = hit.h;
+      });
+      run.landing = best;
+      run.noLanding = best === null ? (run.noLanding || 0) + 1 : 0;
     });
   }
 
@@ -332,6 +627,8 @@
     if (Math.abs(os) > p.hx + p.hs + 1) return false;
     var c = Math.cos(p.turn), sn = Math.sin(p.turn);
     var lx = ox * c + os * sn, ls = -ox * sn + os * c;
+    // Lava burns where the ball rolls on it (its middle over it), not in the air.
+    if (p.hazard) return Math.abs(lx) < p.hx - 0.1 && Math.abs(ls) < p.hs && h - p.base < 0.95;
     var lh = h - (p.base + p.lift + p.hh);
     var dx = Math.max(0, Math.abs(lx) - p.hx);
     var ds = Math.max(0, Math.abs(ls) - p.hs);
@@ -361,26 +658,51 @@
   }
 
   // Advanced mode (modes.js): a normal endless run with every kind of
-  // obstacle, closer together and quicker the further the ball gets. Same
+  // obstacle and, now and then, a stretch of another slope; they come a
+  // little closer together and quicker the further the ball gets. Same
   // placement and fairness as the levels; a hit is the game's own crash.
   var endless = false, endlessLast = null;
   function beginEndless() {
-    run = { endless: true, spec: { n: 0, tempo: 1, pairs: false }, plan: [], next: 0, parts: [], startS: null, goalS: Infinity,
-      hit: null, progress: 0, last: null, lane: null, speed: 0, planned: FIRST_OBSTACLE, passed: 0 };
+    var plan = [];
+    plan.zones = [];
+    run = { endless: true, spec: { n: 0, tempo: 1, pairs: false }, plan: plan, next: 0, parts: [], startS: null, goalS: Infinity,
+      hit: null, progress: 0, last: null, lane: null, speed: 0, planned: FIRST_OBSTACLE,
+      nextZone: 260 + Math.random() * 120, passed: 0, counted: 0 };
     mode = "playing";
   }
   function extendEndless(ball) {
-    var d = ball.s - run.startS;
-    while (run.planned < d + Math.max(PLACE_AHEAD, run.speed * LOOK_AHEAD) + 40) {
-      var at = run.planned, hard = Math.min(1, at / 2500);
+    var d = ball.s - run.startS, added = false;
+    while (run.planned < d + Math.max(PLACE_AHEAD, run.speed * LOOK_AHEAD) + 60) {
+      var at = run.planned, hard = Math.min(1, at / 3000);
+      var spec = { tempo: 1 + 0.8 * hard, pairs: at > 1200 };
+      added = true;
+      if (at >= run.nextZone) {
+        var type = SLOPE_ORDER[Math.floor(Math.random() * SLOPE_ORDER.length)], path = SLOPES[type].path;
+        var zone = { type: type, from: at, to: at + (path ? 40 : 60) + Math.random() * (path ? 30 : 50), dir: Math.random() < 0.5 ? -1 : 1 };
+        run.plan.zones.push(zone);
+        addZone(run.plan, zone, Math.random, spec);
+        run.nextZone = zone.to + 200 + Math.random() * 150;
+        // A narrow or lava stretch is the obstacle there.
+        if (path) { run.planned = zone.to + 12 + Math.random() * 8; continue; }
+      }
       var kind = ORDER[Math.floor(Math.random() * ORDER.length)];
-      run.plan.push({ kind: kind, at: at, a: Math.random(), b: Math.random(), c: Math.random(),
-        spec: { tempo: 1 + 0.8 * hard, pairs: at > 600 } });
-      run.planned += (22 - 12 * hard) * (0.8 + Math.random() * 0.5) + (kind === "spinner" ? 6 : 0);
+      if (kind === "slalom" && at + 26 > run.nextZone) kind = "wall";   // its gates stay clear of the next stretch
+      run.planned = addObstacle(run.plan, kind, at, Math.random, 34 - 16 * hard, spec);
     }
-    run.plan.forEach(function (item) {
-      if (item.state === "placed" && !item.passed && run.startS + item.at < ball.s - 2) { item.passed = true; run.passed++; }
-    });
+    // New pieces of a stretch can come after obstacles already planned.
+    if (added) {
+      var zones = run.plan.zones;
+      run.plan.sort(function (p, q) { return p.at - q.at; });
+      run.plan.zones = zones;
+    }
+    // Obstacles passed: every obstacle (each slalom gate) and every narrow or
+    // lava stretch the ball got through.
+    for (; run.counted < run.plan.length; run.counted++) {
+      var item = run.plan[run.counted];
+      if (run.startS + item.at >= ball.s - 2) break;
+      if (item.state !== "placed" || item.panel) continue;
+      if (!SLOPES[item.kind] || item.at + SEGMENT > item.zone.to) run.passed++;
+    }
   }
 
   function now() { return performance.now() / 1000; }
@@ -403,11 +725,19 @@
     run.lastS = ball.s;
     // The floor height the ball rolls on tells the track ahead from tunnel
     // roofs and the city far below. In the air (off the starting ramp, or
-    // over a drop) the track ahead can be lower, so look deeper; obstacles
-    // never wait for the ball to land.
+    // over a drop) it is the floor right under the ball, where it will land
+    // (high on the starting ramp, the top of the tunnel roof ahead is nearer
+    // than the tunnel's floor); the track ahead can be lower still, so look
+    // deeper. Obstacles never wait for the ball to land.
     var floor = window.SlopeGems ? window.SlopeGems.floor() : null;
-    var ref = floor !== null ? floor : ball.h - 0.5;
-    var below = floor === null || ball.h - floor > 0.8 ? AIR_DROP : 8;
+    var airborne = floor === null || ball.h - floor > 0.8;
+    // (No floor under it: asked again; over a real gap for a while, the
+    // ball's own height has to do.)
+    if (airborne) probeLanding(ball); else { run.landing = undefined; run.noLanding = 0; }
+    var overGap = run.landing === null && run.noLanding > 20;
+    var landingKnown = !airborne || typeof run.landing === "number" || overGap;
+    var ref = !airborne ? floor : typeof run.landing === "number" ? run.landing : ball.h - 0.5;
+    var below = airborne ? AIR_DROP : 8;
     // How far ahead to place, and the nearest an obstacle may appear: more
     // room the faster the ball goes.
     var placeAhead = Math.max(PLACE_AHEAD, run.speed * LOOK_AHEAD);
@@ -429,8 +759,12 @@
       if (s < ball.s + giveUp) { item.state = "skipped"; continue; } // no floor there in time (a gap)
       if (item.state === "found" && !blocked) {
         var built = buildObstacle(item, s, item.floor, item.spec || run.spec,
-          laneReach(run.lane || { s: ball.s, x: ball.x, depth: 0 }, s, item.kind, run.speed));
-        if (built.lane !== undefined) run.lane = { s: s, x: built.lane, depth: item.kind === "spinner" ? 3.5 : 0.7 };
+          laneReach(run.lane || { s: ball.s, x: ball.x, depth: 0 }, s, item.kind, run.speed), run.speed);
+        if (built.lane !== undefined) {
+          run.lane = { s: s, x: built.lane, depth: depthOf(item.kind) };
+          (run.lanes = run.lanes || []).push({ s: s, x: built.lane, kind: item.kind });
+          if (run.lanes.length > 64) run.lanes.shift();
+        }
         run.parts = run.parts.concat(built);
         item.state = "placed";
         // The track is built in order, so ones before with no floor are over a gap.
@@ -439,7 +773,10 @@
         continue;
       }
       if (item.state === "waiting") item.empty = true;   // looked, and no floor yet
-      if (item.state !== "probing" && item.state !== "found") probe(item, s, ball.x, ref, below);
+      if (item.state !== "probing" && item.state !== "found") {
+        if (!landingKnown) { blocked = true; continue; }
+        probe(item, s, ball.x, ref, below);
+      }
       if (item.empty) waiting.push(item);
       else blocked = true;   // its first answer is still to come
     }
@@ -480,11 +817,42 @@
       if (ref !== null && ball.h < ref - 1.5) run.fell = true;
       if (!run.endless) renderHud();
     }
+    updateZone(ball);
     run.last = { s: ball.s, x: ball.x, h: ball.h };
   });
 
+  // --- Other slopes ---------------------------------------------------------------
+  // On a boost, ice or wind stretch the ball handles differently while it is
+  // on it; a banner says which slope it is and how much is left.
+
+  var zoneOn = null;
+
+  function updateZone(ball) {
+    var zone = null;
+    if (run && mode === "playing" && run.startS !== null) {
+      var d = ball.s - run.startS;
+      zone = zoneAt(run.plan.zones || [], d, 0);
+    }
+    if (zone !== zoneOn) setZone(zone);
+    if (zone) renderZone((zone.to - d) / (zone.to - zone.from));
+  }
+
+  function setZone(zone) {
+    var was = zoneOn;
+    zoneOn = zone;
+    var steer = window.SlopeSteer;
+    if (was && was.type === "boost") game.setTimeScale(1);
+    if (was && steer && was.type === "ice") steer.ice(0);
+    if (was && steer && was.type === "wind") steer.wind(was.dir, 0);
+    if (zone && zone.type === "boost") game.setTimeScale(BOOST);
+    if (zone && steer && zone.type === "ice") steer.ice(ICE_SLIDE);
+    if (zone && steer && zone.type === "wind") steer.wind(zone.dir, WIND_SHARE);
+    if (zone) showZone(zone); else hideZone();
+  }
+
   game.on("runstart", function () {
     gameAt = "run";
+    setZone(null);
     clearInterval(startTimer);
     clearTimeout(startDelay);
     clearInterval(menuTimer);
@@ -509,6 +877,7 @@
 
   game.on("runend", function (e) {
     gameAt = "score";
+    setZone(null);
     lastEnd = Math.max(lastEnd, game.gameTime() - 0.05);
     if (!run || mode === null) return;
     if (run.endless) { endlessLast = { passed: run.passed }; run.parts = []; run = null; mode = null; return; }
@@ -521,6 +890,7 @@
 
   game.on("menu", function () {
     gameAt = "menu";
+    setZone(null);
     clearInterval(menuTimer);
   });
 
@@ -572,6 +942,7 @@
   }
 
   function goToMenu() {
+    setZone(null);
     hideScreens();
     mode = null;
     run = null;
@@ -604,14 +975,19 @@
     "}"
   ].join("\n");
 
-  // Black faces and neon edges, like the game's own red blocks.
+  // Black faces and neon edges, like the game's own red blocks. Floor
+  // panels (uStyle > 0) get a pattern in track units instead: lava, boost
+  // chevrons, ice, wind arrows or a landing mark. Colours keep to red, the
+  // game's green and greys, so the track colour setting tints them like the
+  // rest of the game.
   var FRAGMENT_SHADER = [
     "#version 300 es",
     "precision highp float;",
     "in vec3 vLocal;",
     "in vec3 vNormal;",
     "uniform vec3 uHalf, uColor;",
-    "uniform float uGlow, uEdge;",
+    "uniform float uGlow, uEdge, uStyle, uTime, uDir;",
+    "uniform vec2 uOrigin;",
     "out vec4 outColor;",
     "void main() {",
     "  vec3 e = uHalf - abs(vLocal);",
@@ -619,9 +995,41 @@
     "  float mid = e.x + e.y + e.z - lo - hi;", // distance to the nearest edge
     "  float aa = fwidth(mid) + 1e-4;",
     "  float line = 1.0 - smoothstep(0.06 - aa, 0.06 + aa, mid);",
-    "  float light = 0.55 + 0.45 * max(0.0, dot(vNormal, normalize(vec3(0.3, 0.8, -0.5))));",
-    "  vec3 face = mix(vec3(0.015), uColor * 0.9, uGlow) * light;",
-    "  outColor = vec4(mix(face, uColor * uEdge, line), 1.0);",
+    "  if (uStyle < 0.5) {",
+    "    float light = 0.55 + 0.45 * max(0.0, dot(vNormal, normalize(vec3(0.3, 0.8, -0.5))));",
+    "    vec3 face = mix(vec3(0.015), uColor * 0.9, uGlow) * light;",
+    "    outColor = vec4(mix(face, uColor * uEdge, line), 1.0);",
+    "    return;",
+    "  }",
+    "  vec2 q = vec2(vLocal.x + uOrigin.x, vLocal.z + uOrigin.y);", // x sideways, y downhill
+    "  float aq = fwidth(q.x) + fwidth(q.y) + 1e-4;",
+    "  vec3 c;",
+    "  if (uStyle < 1.5) {", // lava
+    "    float n = sin(q.x * 1.7 + uTime * 1.3) * sin(q.y * 1.1 - uTime * 0.8) + 0.5 * sin((q.x - q.y) * 2.3 + uTime * 1.9);",
+    "    c = mix(vec3(0.42, 0.02, 0.0), vec3(1.0, 0.16, 0.02), 0.5 + 0.33 * n);",
+    "    c = mix(c, vec3(1.0, 0.45, 0.12), smoothstep(0.8, 1.3, n));",
+    "  } else if (uStyle < 2.5) {", // boost: chevrons pointing downhill, running down
+    "    float v = fract((q.y + abs(vLocal.x) * 0.6) * 0.45 - uTime * 1.6);",
+    "    float band = smoothstep(0.0, 0.03 + aq, v) - smoothstep(0.32, 0.35 + aq, v);",
+    "    c = mix(vec3(0.0, 0.045, 0.0), vec3(0.3, 1.0, 0.3), band);",
+    "  } else if (uStyle < 3.5) {", // ice: a pale sheet with cracks and a passing shine
+    "    float l1 = abs(fract(q.x * 0.5 + 0.25 * sin(q.y * 0.9)) - 0.5);",
+    "    float l2 = abs(fract(q.y * 0.35 + 0.3 * sin(q.x * 1.3)) - 0.5);",
+    "    float crack = 1.0 - smoothstep(0.012, 0.03 + aq, min(l1, l2));",
+    "    float shine = exp(-pow((fract((q.x + q.y) * 0.08 - uTime * 0.25) - 0.5) * 9.0, 2.0));",
+    "    c = mix(vec3(0.36, 0.4, 0.42) + 0.22 * shine, vec3(0.92), crack);",
+    "  } else if (uStyle < 4.5) {", // wind: arrows blowing sideways, and streaks
+    "    float u = q.x * uDir - abs(fract(q.y * 0.4) - 0.5) * 2.0;",
+    "    float v = fract(u * 0.5 - uTime * 1.4);",
+    "    float band = smoothstep(0.0, 0.03 + aq, v) - smoothstep(0.16, 0.19 + aq, v);",
+    "    float streak = 1.0 - smoothstep(0.0, 0.02 + aq, abs(fract(q.y * 1.3 + 0.37) - 0.5) - 0.46);",
+    "    c = mix(vec3(0.02, 0.025, 0.025), vec3(0.85), max(band, streak * 0.25));",
+    "  } else {", // a landing mark: brighter as the block comes down
+    "    float ring = 1.0 - smoothstep(0.08, 0.1 + aq, min(e.x, e.z));",
+    "    c = uColor * (0.12 + 0.3 * uGlow + ring * (0.35 + 0.65 * uGlow));",
+    "  }",
+    "  c = mix(c, uColor, 1.0 - smoothstep(0.05, 0.05 + aq, e.x));", // its edges
+    "  outColor = vec4(c, 1.0);",
     "}"
   ].join("\n");
 
@@ -667,7 +1075,8 @@
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
     var u = {};
-    ["uViewProjection", "uCentre", "uAxisX", "uAxisY", "uAxisZ", "uHalf", "uColor", "uGlow", "uEdge"].forEach(function (name) {
+    ["uViewProjection", "uCentre", "uAxisX", "uAxisY", "uAxisZ", "uHalf", "uColor", "uGlow", "uEdge",
+      "uStyle", "uTime", "uDir", "uOrigin"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     return { gl: gl, program: program, vao: vao, u: u };
@@ -682,16 +1091,35 @@
     gl.useProgram(gfx.program);
     gl.bindVertexArray(gfx.vao);
     gl.uniformMatrix4fv(gfx.u.uViewProjection, false, scene.vp);
-    gl.uniform3fv(gfx.u.uAxisY, NORMAL);
+    gl.uniform1f(gfx.u.uTime, now() % 1000);
     run.parts.forEach(function (p) {
-      var c = Math.cos(p.turn), sn = Math.sin(p.turn);
+      if (p.hidden) return;
+      if (p.pitch) {
+        // Tilted about the sideways axis (a pendulum swinging along the slope).
+        var pc = Math.cos(p.pitch), ps = Math.sin(p.pitch);
+        gl.uniform3fv(gfx.u.uAxisX, SIDE);
+        gl.uniform3f(gfx.u.uAxisY, NORMAL[0] * pc - DOWNHILL[0] * ps, NORMAL[1] * pc - DOWNHILL[1] * ps, NORMAL[2] * pc - DOWNHILL[2] * ps);
+        gl.uniform3f(gfx.u.uAxisZ, DOWNHILL[0] * pc + NORMAL[0] * ps, DOWNHILL[1] * pc + NORMAL[1] * ps, DOWNHILL[2] * pc + NORMAL[2] * ps);
+      } else if (p.roll) {
+        // Tilted sideways, about the downhill axis (a pendulum's arm and weight).
+        var rc = Math.cos(p.roll), rs = Math.sin(p.roll);
+        gl.uniform3f(gfx.u.uAxisX, SIDE[0] * rc + NORMAL[0] * rs, SIDE[1] * rc + NORMAL[1] * rs, SIDE[2] * rc + NORMAL[2] * rs);
+        gl.uniform3f(gfx.u.uAxisY, NORMAL[0] * rc - SIDE[0] * rs, NORMAL[1] * rc - SIDE[1] * rs, NORMAL[2] * rc - SIDE[2] * rs);
+        gl.uniform3fv(gfx.u.uAxisZ, DOWNHILL);
+      } else {
+        var c = Math.cos(p.turn), sn = Math.sin(p.turn);
+        gl.uniform3f(gfx.u.uAxisX, SIDE[0] * c + DOWNHILL[0] * sn, SIDE[1] * c + DOWNHILL[1] * sn, SIDE[2] * c + DOWNHILL[2] * sn);
+        gl.uniform3fv(gfx.u.uAxisY, NORMAL);
+        gl.uniform3f(gfx.u.uAxisZ, DOWNHILL[0] * c - SIDE[0] * sn, DOWNHILL[1] * c - SIDE[1] * sn, DOWNHILL[2] * c - SIDE[2] * sn);
+      }
       gl.uniform3fv(gfx.u.uCentre, game.toWorld(p.s, p.base + p.lift + p.hh, p.x));
-      gl.uniform3f(gfx.u.uAxisX, SIDE[0] * c + DOWNHILL[0] * sn, SIDE[1] * c + DOWNHILL[1] * sn, SIDE[2] * c + DOWNHILL[2] * sn);
-      gl.uniform3f(gfx.u.uAxisZ, DOWNHILL[0] * c - SIDE[0] * sn, DOWNHILL[1] * c - SIDE[1] * sn, DOWNHILL[2] * c - SIDE[2] * sn);
       gl.uniform3f(gfx.u.uHalf, p.hx, p.hh, p.hs);
       gl.uniform3fv(gfx.u.uColor, p.color);
       gl.uniform1f(gfx.u.uGlow, p.glow);
       gl.uniform1f(gfx.u.uEdge, p.dim ? 0.3 : 1);
+      gl.uniform1f(gfx.u.uStyle, p.style || 0);
+      gl.uniform1f(gfx.u.uDir, p.dir || 1);
+      gl.uniform2f(gfx.u.uOrigin, p.x, p.s);
       gl.drawArrays(gl.TRIANGLES, 0, 36);
     });
   }, function () { return !!run && run.parts.length > 0 && !gfxFailed; });
@@ -779,6 +1207,15 @@
       '<p class="slope-adventure-hud-togo"></p>';
     ui.root.appendChild(hud);
 
+    // The slope the ball is on, when it isn't the normal one (its look from modes.css).
+    var zone = document.createElement("div");
+    zone.className = "slope-effect slope-zone";
+    zone.setAttribute("role", "status");
+    zone.hidden = true;
+    zone.innerHTML = '<p class="slope-effect-name"></p><p class="slope-effect-text"></p>' +
+      '<div class="slope-effect-bar" aria-hidden="true"><span></span></div>';
+    ui.root.appendChild(zone);
+
     // Shown for a moment when a level starts, so it doesn't feel like a normal run.
     var intro = document.createElement("div");
     intro.className = "slope-level-intro";
@@ -809,6 +1246,8 @@
       hudTitle: hud.querySelector(".slope-adventure-hud-title"),
       hudBar: hud.querySelector(".slope-adventure-hud-bar"),
       hudToGo: hud.querySelector(".slope-adventure-hud-togo"),
+      zone: zone,
+      zoneBar: zone.querySelector(".slope-effect-bar span"),
       intro: intro
     };
 
@@ -844,7 +1283,10 @@
   function tileHtml(n, unlocked) {
     var spec = levelSpec(n);
     var beaten = n < unlocked, next = n === unlocked, locked = n > unlocked;
-    var kind = KINDS[spec.kinds[0]].name + (n > ORDER.length && spec.kinds.length > 1 ? " +" + (spec.kinds.length - 1) : "");
+    var main = spec.fresh ? (SLOPES[spec.fresh] || KINDS[spec.fresh]).name
+      : spec.slopes.length ? SLOPES[spec.slopes[0]].name : KINDS[spec.kinds[0]].name;
+    var more = spec.fresh ? 0 : spec.slopes.length + spec.kinds.length - 1;
+    var kind = main + (more ? " +" + more : "");
     var label = "Level " + n + ", " + spec.title + (beaten ? ", beaten" : locked ? ", locked" : ", play next");
     return '<li><button type="button" class="slope-btn slope-level-tile' + (beaten ? " is-beaten" : "") + (next ? " is-next" : "") +
       '" data-level="' + n + '"' + (locked ? " disabled" : "") + ' aria-label="' + label + '">' +
@@ -953,7 +1395,9 @@
     if (!els.intro) return;
     els.intro.querySelector(".slope-level-intro-title").textContent = "Level " + spec.n;
     els.intro.querySelector(".slope-level-intro-kinds").textContent = spec.title;
-    els.intro.querySelector(".slope-level-intro-goal").textContent = "Avoid the red obstacles and reach the finish line";
+    var news = spec.fresh && (SLOPES[spec.fresh] || KINDS[spec.fresh]).text;
+    els.intro.querySelector(".slope-level-intro-goal").textContent =
+      news ? news + ". Reach the finish line" : "Avoid the red obstacles and reach the finish line";
     els.intro.hidden = false;
     clearTimeout(introTimer);
     introTimer = setTimeout(hideIntro, 3000);
@@ -964,6 +1408,25 @@
     if (els.intro) els.intro.hidden = true;
   }
 
+  function showZone(zone) {
+    if (!els.zone) return;
+    var info = SLOPES[zone.type];
+    els.zone.querySelector(".slope-effect-name").textContent = info.name;
+    els.zone.querySelector(".slope-effect-text").textContent =
+      zone.type === "wind" ? "Gusts push you " + (zone.dir < 0 ? "left" : "right") : info.text;
+    // Under the level's progress panel while it shows.
+    els.zone.style.top = els.hud && !els.hud.hidden ? Math.round(els.hud.getBoundingClientRect().bottom + 8) + "px" : "";
+    els.zone.hidden = false;
+  }
+
+  function renderZone(left) {
+    if (els.zoneBar) els.zoneBar.style.transform = "scaleX(" + Math.max(0, Math.min(1, left)).toFixed(3) + ")";
+  }
+
+  function hideZone() {
+    if (els.zone) els.zone.hidden = true;
+  }
+
   window.SlopeAdventure = {
     open: function (from) { openGrid(from); },
     start: start,
@@ -971,19 +1434,30 @@
     isClear: function (s) {
       if (!run || run.startS === null || mode !== "playing") return true;
       for (var i = 0; i < run.plan.length; i++) {
-        if (Math.abs(run.startS + run.plan[i].at - s) < (run.plan[i].kind === "spinner" ? 8 : 5)) return false;
+        var item = run.plan[i];
+        if (!item.panel && Math.abs(run.startS + item.at - s) < depthOf(item.kind) + 4.3) return false;
       }
       return Math.abs(run.goalS - s) > 3;
     },
     handlesRun: function () { return !!run && mode !== null && !run.endless; },
     // Advanced mode: normal runs get endless obstacles while this is on.
     setEndless: function (on) { endless = !!on; },
+    // The slope the ball is on now ("normal" when none), and the stretches of the run.
+    slope: function () { return zoneOn ? zoneOn.type : "normal"; },
+    zones: function () {
+      return run && run.startS !== null ? (run.plan.zones || []).map(function (z) {
+        return { type: z.type, from: run.startS + z.from, to: run.startS + z.to, dir: z.dir };
+      }) : [];
+    },
     // Obstacles passed in this Advanced run (or the last one, after it ends).
     dodged: function () { return run && run.endless ? run.passed : endlessLast ? endlessLast.passed : 0; },
+    // The open lanes of the obstacles placed lately (slope coordinates; for tools and tests).
+    lanes: function () { return run && run.lanes ? run.lanes.slice() : []; },
     // The obstacles on the track now (slope coordinates; for tools and tests).
     obstacles: function () {
       return run ? run.parts.map(function (p) {
-        return { kind: p.kind, s: p.s, x: p.x, h: p.base + p.lift + p.hh, hx: p.hx, hs: p.hs, hh: p.hh, base: p.base, turn: p.turn, solid: p.solid };
+        return { kind: p.kind, s: p.s, x: p.x, h: p.base + p.lift + p.hh, hx: p.hx, hs: p.hs, hh: p.hh, base: p.base, turn: p.turn,
+          solid: p.solid, hidden: !!p.hidden, hazard: !!p.hazard, style: p.style || 0 };
       }) : [];
     }
   };

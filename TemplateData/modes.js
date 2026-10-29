@@ -8,8 +8,9 @@
  *                help (slow motion, gem rain, a magnet, double gems, a
  *                jackpot), some hurt (fast forward, mirrored steering, a
  *                blackout, a wobbling or blurred screen)
- *   Advanced     every obstacle from the Adventure levels, endlessly, closer
- *                and quicker the further the ball gets (adventure.js)
+ *   Advanced     every obstacle and slope from the Adventure levels,
+ *                endlessly, closer and quicker the further the ball gets
+ *                (adventure.js)
  *
  *   SlopeModes.current()        the mode of the run being played
  *   SlopeModes.active(effect)   true while a Randomizer effect is on
@@ -26,7 +27,7 @@
   var MODES = [
     { id: "classic", name: "Classic", text: "The original: the slope, your ball and nothing else in the way." },
     { id: "randomizer", name: "Randomizer", text: "Every few seconds a random effect for a short while. Some help you, some get in your way." },
-    { id: "advanced", name: "Advanced", text: "Every obstacle from the Adventure levels, all the way down: closer together and quicker the further you get." }
+    { id: "advanced", name: "Advanced", text: "Every obstacle and slope from the Adventure levels, all the way down: closer together and quicker the further you get." }
   ];
 
   var EFFECTS = [
@@ -108,45 +109,10 @@
     if (fx.on) { updateBanner(); updateLook(); }
   });
 
-  // Mirrored steering: the game hears the opposite key. Keys held when it
-  // starts or ends are let go and pressed again the right way round.
-  var MIRROR = { ArrowLeft: ["ArrowRight", "ArrowRight", 39], ArrowRight: ["ArrowLeft", "ArrowLeft", 37],
-    a: ["d", "KeyD", 68], A: ["D", "KeyD", 68], q: ["d", "KeyD", 68], Q: ["D", "KeyD", 68], d: ["a", "KeyA", 65], D: ["A", "KeyA", 65] };
-  var KEYS = { ArrowLeft: ["ArrowLeft", 37], ArrowRight: ["ArrowRight", 39], a: ["KeyA", 65], A: ["KeyA", 65], q: ["KeyQ", 81], Q: ["KeyQ", 81], d: ["KeyD", 68], D: ["KeyD", 68] };
-  var mirrored = false, held = {};
-
-  function keyEvent(type, key, code, keyCode) {
-    var ev = new KeyboardEvent(type, { key: key, code: code, bubbles: true, cancelable: true });
-    try {
-      Object.defineProperty(ev, "keyCode", { get: function () { return keyCode; } });
-      Object.defineProperty(ev, "which", { get: function () { return keyCode; } });
-    } catch (e) {}
-    ev.__slopeSynthetic = true;
-    return ev;
-  }
-  function send(type, key, mirror) {
-    var target = document.getElementById("#canvas") || document.body;
-    if (mirror) { var m = MIRROR[key]; target.dispatchEvent(keyEvent(type, m[0], m[1], m[2])); }
-    else { var k = KEYS[key]; target.dispatchEvent(keyEvent(type, key, k[0], k[1])); }
-  }
+  // Mirrored steering: the game hears the opposite key (steer.js).
   function mirror(on) {
-    if (mirrored === on) return;
-    Object.keys(held).forEach(function (key) { send("keyup", key, mirrored); });
-    mirrored = on;
-    Object.keys(held).forEach(function (key) { send("keydown", key, mirrored); });
+    if (window.SlopeSteer) window.SlopeSteer.mirror(on);
   }
-  ["keydown", "keyup"].forEach(function (type) {
-    window.addEventListener(type, function (e) {
-      if (e.__slopeSynthetic || !MIRROR[e.key]) return;
-      if (type === "keydown") held[e.key] = true; else delete held[e.key];
-      if (!mirrored) return;
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      if (type === "keydown" && e.repeat) return;
-      send(type, e.key, true);
-    }, true);
-  });
-  window.addEventListener("blur", function () { held = {}; });
 
   // Screen effects: on the game's canvas (the track colour tint sits on its
   // container, so they combine), and a dark veil with a hole around the ball.
