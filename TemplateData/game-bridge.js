@@ -38,9 +38,11 @@
  *   SlopeGame.on("runstart" | "runend" | "career" | "adventure" | "shop" | "menu" | "frame", handler)
  *   SlopeGame.send(eventName)      send an event to the game's EventManager
  *   SlopeGame.inRun()              true while a run is going
+ *   SlopeGame.gameTime()           seconds on the game's clock (slower than real time on slow frames)
  *   SlopeGame.on("scene", function ({ gl, vp }) { ... })   WebGL2 only
  *   SlopeGame.paintBall(function ({ gl, vp, o2w, draw }) { ... return true; })
  *   SlopeGame.paintTrail(function ({ gl, program, draw }) { ... return true; })
+ *   SlopeGame.probeFloor([{ s, x }, ...], function (hits) { ... })   floor heights from the track geometry
  */
 (function () {
   "use strict";
@@ -146,6 +148,87 @@
       out.x0 = Math.min(out.x0, p.x); out.x1 = Math.max(out.x1, p.x);
     }
     return out;
+  }
+
+  // Bytes of a WebGL upload source (WebGL2 bufferData/bufferSubData can take
+  // an element offset and length into the source view).
+  function asBytes(src, srcOffset, length) {
+    if (!src.buffer) return new Uint8Array(src);
+    var size = src.BYTES_PER_ELEMENT || 1;
+    var start = (srcOffset || 0) * size;
+    var n = length ? length * size : src.byteLength - start;
+    return new Uint8Array(src.buffer, (src.byteOffset || 0) + start, n);
+  }
+
+  // --- Floor probes ---------------------------------------------------------------
+  // "Where is the floor under these points?" Answered from the next frame's
+  // track geometry: every surface of every mesh drawn, static or batched.
+  // Each point gets the surfaces above it: { h, flat }, h in slope height,
+  // flat when the surface is parallel to the slope (floors and tops; the
+  // red side ramps are not).
+
+  var probeQueue = [];   // asked for, answered during the next frame
+  var probing = [];      // being answered during this frame's draws
+
+  function probeMesh(gl, state, count, type, offset, m) {
+    var attrib = state.attrib0, elems = state.elements;
+    if (!attrib || !attrib.buffer || !elems) return;
+    var vdata = attrib.buffer.__slopeData || attrib.buffer.__slopeLive;
+    var idata = elems.__slopeData || elems.__slopeLive;
+    if (!vdata || !idata) return;
+    var wide = type === gl.UNSIGNED_INT, bpe = wide ? 4 : 2;
+    if (offset % bpe || offset + count * bpe > idata.byteLength) return;
+    var indices = wide ? new Uint32Array(idata.buffer, idata.byteOffset + offset, count)
+      : new Uint16Array(idata.buffer, idata.byteOffset + offset, count);
+    var verts = new DataView(vdata.buffer, vdata.byteOffset, vdata.byteLength);
+    var stride = attrib.stride, base = attrib.offset;
+    // Everything asked for this frame, with bounds for quick rejects: all of
+    // it, and each request (usually a row of points at one distance).
+    var smin = Infinity, smax = -Infinity, xmin = Infinity, xmax = -Infinity;
+    var groups = probing.map(function (q) {
+      var g = { s0: Infinity, s1: -Infinity, x0: Infinity, x1: -Infinity, pts: [] };
+      q.points.forEach(function (p, j) {
+        g.pts.push([p.s, p.x, q.hits[j]]);
+        g.s0 = Math.min(g.s0, p.s); g.s1 = Math.max(g.s1, p.s); g.x0 = Math.min(g.x0, p.x); g.x1 = Math.max(g.x1, p.x);
+      });
+      smin = Math.min(smin, g.s0); smax = Math.max(smax, g.s1); xmin = Math.min(xmin, g.x0); xmax = Math.max(xmax, g.x1);
+      return g;
+    });
+    var S = [0, 0, 0], H = [0, 0, 0], X = [0, 0, 0];
+    for (var i = 0; i + 2 < count; i += 3) {
+      for (var k = 0; k < 3; k++) {
+        var p = base + indices[i + k] * stride;
+        if (p + 12 > vdata.byteLength) return;
+        var lx = verts.getFloat32(p, true), ly = verts.getFloat32(p + 4, true), lz = verts.getFloat32(p + 8, true);
+        var wx = m[0] * lx + m[4] * ly + m[8] * lz + m[12];
+        var wy = m[1] * lx + m[5] * ly + m[9] * lz + m[13];
+        var wz = m[2] * lx + m[6] * ly + m[10] * lz + m[14];
+        S[k] = (wz - wy) * SQRT1_2; H[k] = (wy + wz) * SQRT1_2; X[k] = wx;
+      }
+      var ts0 = Math.min(S[0], S[1], S[2]), ts1 = Math.max(S[0], S[1], S[2]);
+      var tx0 = Math.min(X[0], X[1], X[2]), tx1 = Math.max(X[0], X[1], X[2]);
+      if (ts1 < smin || ts0 > smax || tx1 < xmin || tx0 > xmax) continue;
+      var as = S[1] - S[0], ah = H[1] - H[0], ax = X[1] - X[0];
+      var bs = S[2] - S[0], bh = H[2] - H[0], bx = X[2] - X[0];
+      var nx = ah * bs - as * bh, nh = as * bx - ax * bs, ns = ax * bh - ah * bx;
+      var len = Math.sqrt(nx * nx + nh * nh + ns * ns);
+      if (len < 1e-9) continue;
+      var flat = Math.abs(nh) >= 0.9 * len;
+      var det = as * bx - bs * ax;
+      if (Math.abs(det) < 1e-12) continue;
+      for (var g = 0; g < groups.length; g++) {
+        var grp = groups[g];
+        if (grp.s1 < ts0 || grp.s0 > ts1 || grp.x1 < tx0 || grp.x0 > tx1) continue;
+        for (var j = 0; j < grp.pts.length; j++) {
+          var pt = grp.pts[j], ps = pt[0], px = pt[1];
+          if (ps < ts0 || ps > ts1 || px < tx0 || px > tx1) continue;
+          var u = ((ps - S[0]) * bx - bs * (px - X[0])) / det;
+          var v = (as * (px - X[0]) - (ps - S[0]) * ax) / det;
+          if (u < -1e-4 || v < -1e-4 || u + v > 1 + 1e-4) continue;
+          pt[2].push({ h: H[0] + u * ah + v * bh, flat: flat });
+        }
+      }
+    }
   }
 
   function instrument(gl) {
@@ -254,12 +337,30 @@
       var target = a[0] === gl.ELEMENT_ARRAY_BUFFER ? vao.elements : arrayBuffer;
       if (!target) return;
       target.__slopeBounds = null;
-      if (a[2] === STATIC_DRAW && typeof a[1] !== "number" && a[1]) {
-        var src = a[1].buffer ? new Uint8Array(a[1].buffer, a[1].byteOffset || 0, a[1].byteLength) : new Uint8Array(a[1]);
-        target.__slopeData = new Uint8Array(src);
+      var bytes = typeof a[1] === "number" ? null : asBytes(a[1]);
+      if (a[2] === STATIC_DRAW && bytes) {
+        target.__slopeData = new Uint8Array(bytes);
+        target.__slopeLive = null;
       } else {
+        // Per-frame geometry (the game's batched track pieces): a live copy,
+        // read only by floor probes.
         target.__slopeData = null;
+        target.__slopeLive = bytes ? new Uint8Array(bytes) : typeof a[1] === "number" ? new Uint8Array(a[1]) : null;
       }
+    });
+    wrap("bufferSubData", function (a) {
+      var target = a[0] === gl.ELEMENT_ARRAY_BUFFER ? vao.elements : arrayBuffer;
+      if (!target || !a[2]) return;
+      var bytes = asBytes(a[2], a[3], a[4]), at = a[1] || 0;
+      var copy = target.__slopeData || target.__slopeLive;
+      if (!copy || copy.length < at + bytes.length) {
+        var grown = new Uint8Array(at + bytes.length);
+        if (copy) grown.set(copy);
+        copy = grown;
+        if (target.__slopeData) target.__slopeData = copy; else target.__slopeLive = copy;
+      }
+      copy.set(bytes, at);
+      target.__slopeBounds = null;
     });
     wrap("bindFramebuffer", function (a) {
       if (a[0] === gl.FRAMEBUFFER || a[0] === DRAW_FRAMEBUFFER) onScreen = !a[1];
@@ -307,6 +408,7 @@
         }
         return;
       }
+      if (probing.length) probeMesh(gl, vao, count, arguments[2], arguments[3], o2w);
       var bounds = localBounds(gl, vao, count, arguments[2], arguments[3]);
       if (!bounds) return;
       var ext = slopeExtent(o2w, bounds);
@@ -327,13 +429,36 @@
 
   // Hand each finished frame to listeners right after the game draws it, in
   // the same task, so anything drawn on top lines up with no lag.
+  // The game's own clock: it moves with the frames, and a long frame counts
+  // as at most a third of a second (Unity's maximum delta time), so on a slow
+  // device it falls behind the wall clock. The game's delayed events (like
+  // the track clean-up after a crash) run on it.
+  var gameTime = 0, lastFrameTime = null;
   var raf = window.requestAnimationFrame;
   window.requestAnimationFrame = function (callback) {
     return raf.call(window, function (time) {
-      callback(time);
-      if (frame) {
-        var done = frame; frame = null;
-        if (done.ball) emit("frame", done);
+      if (time !== lastFrameTime) {
+        if (lastFrameTime !== null) gameTime += Math.min(Math.max(0, time - lastFrameTime) / 1000, 1 / 3);
+        lastFrameTime = time;
+      }
+      // Probes asked for since the last answer are answered by the next frame
+      // the game draws (other code's animation frames draw nothing).
+      if (!probing.length && probeQueue.length) {
+        probing = probeQueue;
+        probeQueue = [];
+      }
+      try {
+        callback(time);
+      } finally {
+        if (frame) {
+          var answered = probing, done = frame;
+          probing = [];
+          frame = null;
+          answered.forEach(function (q) {
+            try { q.done(done.ball ? q.hits : null); } catch (e) { console.error(e); }
+          });
+          if (done.ball) emit("frame", done);
+        }
       }
     });
   };
@@ -351,8 +476,15 @@
       }
     },
     inRun: function () { return inRun; },
+    gameTime: function () { return gameTime; },
     paintBall: function (fn) { ballPainter = fn || null; },
     paintTrail: function (fn) { trailPainter = fn || null; },
+    // Ask for the surfaces under points [{ s, x }]. done(hits) runs after the
+    // next frame the game draws, with one array of { h, flat } per point, or
+    // null if that frame had no ball (no 3D scene).
+    probeFloor: function (points, done) {
+      probeQueue.push({ points: points, hits: points.map(function () { return []; }), done: done });
+    },
     toSlope: toSlope,
     // Slope coordinates back to world coordinates.
     toWorld: function (s, h, x) {

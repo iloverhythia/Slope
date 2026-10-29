@@ -11,7 +11,7 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 - **Instant steering**: the ball moves sideways the moment a key is pressed and stops when it is released.
 - **Gems** on the track, drawn as part of the game's 3D scene. Roll through them to collect them.
 - **Skin shop** (Shop button in the main menu, the gem counter, or the Career screen): 20 ball skins to buy with gems. Each skin has its own color for the ball's speed-up trail, which still only appears on speed up.
-- **Adventure** button in the main menu: an endless grid of levels. Reach a level's finish line to unlock the next one. Every level has its own obstacles to avoid (blocks, walls with a gap, sliders, lasers, rising pillars, spinners); levels 1 to 6 bring in one new obstacle each, later levels mix them and get denser and faster.
+- **Adventure** button in the main menu: an endless grid of levels. Reach a level's finish line to unlock the next one. Every level has its own obstacles to avoid (blocks, walls with a gap, sliders, lasers, rising pillars, spinners); levels 1 to 6 bring in one new obstacle each, later levels mix them and get denser and faster. Obstacles are put on the track's real floor (read from the track's geometry) only once that part of the track exists.
 - **Career** button in the main menu: profile, level and stats. Every run earns score x 10 XP.
 - In the Claude artifact version you can log in with Claude so your Career follows your account.
 

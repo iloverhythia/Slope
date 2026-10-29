@@ -146,3 +146,70 @@
   gap: 3px;
   height: 10px;
 }
+
+.slope-adventure-hud-togo {
+  color: var(--slope-dim);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Level intro: shown for a moment when a level starts. */
+
+.slope-level-intro {
+  position: fixed;
+  z-index: 1000;
+  top: 24%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 16px 28px 18px;
+  transform: translateX(-50%);
+  background: var(--slope-ground);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  text-align: center;
+  pointer-events: none;
+}
+
+.slope-level-intro[hidden] {
+  display: none;
+}
+
+.slope-level-intro p {
+  margin: 0;
+}
+
+.slope-level-intro-title {
+  font-family: var(--slope-display);
+  font-size: clamp(40px, 8vw, 64px);
+  line-height: 1;
+}
+
+.slope-level-intro-kinds {
+  font-family: var(--slope-display);
+  font-size: 22px;
+}
+
+.slope-level-intro-goal {
+  color: var(--slope-dim);
+  font-size: 14px;
+}
+
+/* Starting a level: the grid waits. */
+.slope-levels.is-busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Buttons waiting while a level starts: dimmed, and no red hover. */
+.slope-adventure-result .slope-btn:disabled,
+.slope-adventure-result .slope-btn:disabled:hover,
+.slope-adventure .slope-btn:disabled:not(.slope-level-tile),
+.slope-adventure .slope-btn:disabled:not(.slope-level-tile):hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: progress;
+}

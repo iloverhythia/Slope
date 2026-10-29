@@ -9,15 +9,23 @@
  * spinning bars. Levels 1 to 6 bring in one new obstacle each; after that
  * every level mixes two or three, and they get denser and faster.
  *
+ * Obstacles are put on the track only once the track under them exists, on
+ * its real floor (heights and edges come from the track's own geometry,
+ * SlopeGame.probeFloor), so they never float in the air or hang off the side.
+ *
  * Touching an obstacle crashes the ball (the game's own "collide death").
- * Crossing the finish line ends the run quietly ("fall death") and unlocks
- * the next level. Progress is kept in the profile.
+ * Crossing the finish line unlocks the next level and ends the run the same
+ * way, hidden behind the result screen: that is the one path that resets
+ * everything in the game (ball, camera, track, fall-out detector) for the
+ * next run. A new run is only asked for once the game has cleared the old
+ * track, 3 seconds after a run ends. Progress is kept in the profile.
  *
  *   SlopeAdventure.open()        show the level grid
  *   SlopeAdventure.start(n)      play level n (if unlocked)
  *   SlopeAdventure.level(n)      the level's description
  *   SlopeAdventure.isClear(s)    false where a level obstacle stands (gems avoid it)
  *   SlopeAdventure.handlesRun()  true while the current run is an Adventure level
+ *   SlopeAdventure.obstacles()   the obstacles on the track now
  */
 (function () {
   "use strict";
@@ -27,9 +35,13 @@
   if (!game || !profile || !window.SlopeUI) return;
 
   var BALL_RADIUS = 0.45;        // the ball is 0.5; a little forgiving
-  var ACTIVATE_AHEAD = 75;       // obstacles appear this far down the track
-  var FIRST_OBSTACLE = 60;       // distance from the start
-  var FALLBACK_HALF_WIDTH = 3.3; // the tunnel floor is about 6.7 wide
+  var PLACE_AHEAD = 60;          // obstacles go on the track at most this far ahead...
+  var GIVE_UP_AHEAD = 18;        // ...and are left out if no floor shows up before this
+  var FIRST_OBSTACLE = 45;       // distance from the start
+  var PROBE_REACH = 8;           // look for floor this far to each side
+  var PROBE_STEP = 0.5;
+  var MIN_FLOOR = 1.8;           // narrowest floor an obstacle goes on
+  var NARROW_FLOOR = 3.4;        // below this, only obstacles you can always get past
   var RED = [1.0, 0.08, 0.06];
   var WHITE = [1.0, 1.0, 1.0];
   var LEVEL_STEP = 18;           // levels added to the grid at a time
@@ -98,21 +110,29 @@
       plan.push({ kind: kind, at: at, a: random(), b: random(), c: random() });
       at += spec.gap * (0.8 + random() * 0.5) + (kind === "spinner" ? 6 : 0);
     }
+    plan.push({ kind: "finish", at: spec.length, a: 0, b: 0, c: 0 });
     return plan;
   }
 
   // --- Obstacles -----------------------------------------------------------------
-  // Each part is a box in slope coordinates: centre (s, x, h above the floor's
-  // surface), half sizes (hx sideways, hs along, hh up) and a turn in the
-  // slope plane. Moving parts work out their pose from the clock.
+  // Each part is a box in slope coordinates: centre (s, x), the floor height
+  // it stands on (base, h), a lift above that floor, half sizes (hx sideways,
+  // hs along, hh up) and a turn in the slope plane. Moving parts work out
+  // their pose from the clock.
 
   function box(s, x, hx, hs, hh, extra) {
-    var part = { s: s, x: x, hx: hx, hs: hs, hh: hh, lift: 0, turn: 0, solid: true, glow: 0, color: RED };
+    var part = { s: s, x: x, hx: hx, hs: hs, hh: hh, base: 0, lift: 0, turn: 0, solid: true, glow: 0, color: RED };
     for (var k in extra) part[k] = extra[k];
     return part;
   }
 
+  // track: { cx, hw, h } — the floor's centre, half width and height at s.
   function buildObstacle(item, s, track, spec) {
+    if (item.kind === "finish") return finishLine(s, track);
+    // On a narrow beam a block, wall, slider or spinner could leave no way
+    // past; lasers switch off and pillars sink, so those still fit.
+    if (track.hw * 2 < NARROW_FLOOR && item.kind !== "laser" && item.kind !== "pillar") return [];
+    var narrow = track.hw * 2 < NARROW_FLOOR;
     var cx = track.cx, hw = track.hw;
     var w = 2 * Math.PI;
     var t = spec.tempo;
@@ -142,7 +162,7 @@
         break;
       case "laser":
         var cycle = 2.2 / t, offset = item.a * cycle;
-        parts.push(box(s, cx, hw, 0.1, 0.1, {
+        parts.push(box(s, cx, hw - 0.3, 0.1, 0.1, {
           lift: 0.45,
           move: function (p, now) {
             var on = ((now + offset) % cycle) / cycle < 0.5;
@@ -151,22 +171,22 @@
             p.dim = !on;
           }
         }));
-        parts.push(box(s, cx - hw - 0.15, 0.15, 0.15, 0.7, { solid: false }));
-        parts.push(box(s, cx + hw + 0.15, 0.15, 0.15, 0.7, { solid: false }));
+        parts.push(box(s, cx - hw + 0.15, 0.15, 0.15, 0.7, { solid: false }));
+        parts.push(box(s, cx + hw - 0.15, 0.15, 0.15, 0.7, { solid: false }));
         break;
       case "pillar":
-        var count = spec.pairs && item.c < 0.5 ? 2 : 1;
+        var count = spec.pairs && item.c < 0.5 && !narrow ? 2 : 1;
         for (var i = 0; i < count; i++) {
           (function (px, phase) {
             var span = 2.6 / t;
-            parts.push(box(s, px, 0.7, 0.7, 1.1, {
+            parts.push(box(s, px, Math.min(0.7, hw), 0.7, 1.1, {
               move: function (p, now) {
                 // Up half the time, down (under the floor) the other half.
                 var k = Math.max(0, Math.min(1, 0.5 + 1.4 * Math.sin(now * w / span + phase)));
                 p.lift = (k - 1) * 2.3;
               }
             }));
-          })(across(i ? item.b : item.a, 0.8), item.c * w + i * Math.PI);
+          })(narrow ? cx : across(i ? item.b : item.a, 0.8), item.c * w + i * Math.PI);
         }
         break;
       case "spinner":
@@ -175,27 +195,82 @@
         parts.push(box(s, cx, 0.3, 0.3, 0.6, { solid: true })); // the hub
         break;
     }
-    parts.forEach(function (p) { p.kind = item.kind; });
+    parts.forEach(function (p) { p.kind = item.kind; p.base = track.h; });
     return parts;
   }
 
   function finishLine(s, track) {
     var cx = track.cx, hw = track.hw;
-    return [
+    var parts = [
       box(s, cx, hw, 0.25, 0.02, { solid: false, glow: 1, color: WHITE, lift: -0.02 }),
-      box(s, cx - hw - 0.25, 0.2, 0.2, 1.6, { solid: false, color: WHITE }),
-      box(s, cx + hw + 0.25, 0.2, 0.2, 1.6, { solid: false, color: WHITE }),
-      box(s, cx, hw + 0.45, 0.2, 0.2, { solid: false, color: WHITE, lift: 3.0, glow: 0.4 })
+      box(s, cx - hw + 0.2, 0.2, 0.2, 1.6, { solid: false, color: WHITE }),
+      box(s, cx + hw - 0.2, 0.2, 0.2, 1.6, { solid: false, color: WHITE }),
+      box(s, cx, hw, 0.2, 0.2, { solid: false, color: WHITE, lift: 3.0, glow: 0.4 })
     ];
+    parts.forEach(function (p) { p.kind = "finish"; p.base = track.h; });
+    return parts;
+  }
+
+  // The floor under one row of probe points: the highest flat surface near
+  // the ball's floor height, with room above it (under a red side ramp there
+  // isn't; under a tunnel roof there is). Neighbouring points at the same
+  // height make one floor. Returns the floor that is the likeliest track (at
+  // least MIN_FLOOR wide, nearest the ball's height, then nearest x), or null.
+  function floorRow(xs, hits, x, ref) {
+    var heights = hits.map(function (list) {
+      var top = null;
+      list.forEach(function (hit) {
+        if (hit.flat && hit.h > ref - 8 && hit.h < ref + 1 && (top === null || hit.h > top)) top = hit.h;
+      });
+      if (top === null) return null;
+      var covered = list.some(function (hit) { return hit.h > top + 0.05 && hit.h < top + 2; });
+      return covered ? null : top;
+    });
+    var runs = [], cur = null;
+    heights.forEach(function (h, i) {
+      if (h === null) { cur = null; return; }
+      if (cur && Math.abs(h - cur.last) < 0.3) { cur.to = i; cur.last = h; cur.hs.push(h); }
+      else { cur = { from: i, to: i, last: h, hs: [h] }; runs.push(cur); }
+    });
+    var best = null, bestScore = Infinity;
+    runs.forEach(function (r) {
+      var x0 = xs[r.from] - PROBE_STEP / 2, x1 = xs[r.to] + PROBE_STEP / 2;
+      if (x1 - x0 < MIN_FLOOR) return;
+      // The track runs straight ahead of the ball and drops in steps; the city
+      // ground far below and the other beams beside it are not the track.
+      var score = Math.abs(r.hs[0] - ref) * 6 + Math.max(0, x0 - x, x - x1) * 8 - (x1 - x0) * 0.2;
+      if (score < bestScore) { bestScore = score; best = { x0: x0, x1: x1, hs: r.hs }; }
+    });
+    if (!best) return null;
+    var sorted = best.hs.slice().sort(function (a, b) { return a - b; });
+    return { cx: (best.x0 + best.x1) / 2, hw: (best.x1 - best.x0) / 2, h: sorted[sorted.length >> 1] };
+  }
+
+  // Ask where the floor is at an upcoming obstacle; the answer comes with the
+  // next frame the game draws.
+  function probe(item, s, x, ref) {
+    var xs = [], points = [];
+    for (var dx = -PROBE_REACH; dx <= PROBE_REACH + 1e-6; dx += PROBE_STEP) {
+      xs.push(x + dx);
+      points.push({ s: s, x: x + dx });
+    }
+    item.state = "probing";
+    var forRun = run;
+    game.probeFloor(points, function (hits) {
+      if (run !== forRun || item.state !== "probing") return;
+      var floor = hits ? floorRow(xs, hits, x, ref) : null;
+      item.floor = floor;
+      item.state = floor ? "found" : "waiting";
+    });
   }
 
   // Does a ball centred at (s, x, h) touch the part? (sphere against a turned box)
-  function touches(p, s, x, h, floor) {
+  function touches(p, s, x, h) {
     var os = s - p.s, ox = x - p.x;
     if (Math.abs(os) > p.hx + p.hs + 1) return false;
     var c = Math.cos(p.turn), sn = Math.sin(p.turn);
     var lx = ox * c + os * sn, ls = -ox * sn + os * c;
-    var lh = h - (floor + p.lift + p.hh);
+    var lh = h - (p.base + p.lift + p.hh);
     var dx = Math.max(0, Math.abs(lx) - p.hx);
     var ds = Math.max(0, Math.abs(ls) - p.hs);
     var dh = Math.max(0, Math.abs(lh) - p.hh);
@@ -205,27 +280,22 @@
   // --- The level being played ------------------------------------------------------
 
   var mode = null;      // null | "playing" | "won" | "failed"
-  var run = null;       // { spec, plan, next, parts, startS, goalS, track, hit, progress }
+  var run = null;       // { spec, plan, next, parts, startS, goalS, hit, progress }
   var pending = null;   // level to begin at the next run start
   var startTimer = 0;
+  var startDelay = 0;
   var menuTimer = 0;
+  var lastEnd = -Infinity; // when the last run ended, on the game's clock
+  var CLEANUP = 3.7;       // the game clears the old track 3 s (game time) after a run ends
   var gameAt = "menu";  // where the game is: "menu" | "run" | "score"
-
-  function trackAt(pieces, s) {
-    var lo = -Infinity, hi = Infinity, any = false;
-    pieces.forEach(function (p) {
-      if (p.x1 - p.x0 >= 9 || s < p.s0 || s > p.s1) return; // the tunnel floor only
-      lo = Math.max(lo, p.x0); hi = Math.min(hi, p.x1); any = true;
-    });
-    return any && hi - lo > 3 ? { cx: (lo + hi) / 2, hw: (hi - lo) / 2 } : null;
-  }
 
   function begin(n) {
     var spec = levelSpec(n);
     run = { spec: spec, plan: planLevel(spec), next: 0, parts: [], startS: null, goalS: null,
-      track: null, hit: null, progress: 0, finishShown: false, last: null };
+      hit: null, progress: 0, last: null };
     mode = "playing";
     showHud();
+    showIntro(spec);
   }
 
   function now() { return performance.now() / 1000; }
@@ -237,24 +307,28 @@
       run.startS = ball.s;
       run.goalS = ball.s + run.spec.length;
     }
-    // Obstacles stand on the floor the ball rolls on; wait until it's known
-    // (the ball starts on a ramp above the track).
-    var floor = window.SlopeGems ? window.SlopeGems.floor() : ball.h - 0.5;
-    if (floor === null || floor === undefined) { run.last = { s: ball.s, x: ball.x, h: ball.h }; return; }
-    run.floor = floor;
-    var measured = trackAt(frame.pieces, ball.s + 10);
-    if (measured) run.track = measured;
-    var fallback = run.track || { cx: ball.x, hw: FALLBACK_HALF_WIDTH };
+    // The floor height the ball rolls on tells the track ahead from tunnel
+    // roofs and the city far below. The ball starts on a ramp above the
+    // track, so wait until it rolls on the floor.
+    var ref = window.SlopeGems ? window.SlopeGems.floor() : ball.h - 0.5;
 
-    // Bring obstacles in as they come into view.
-    while (run.next < run.plan.length && run.startS + run.plan[run.next].at < ball.s + ACTIVATE_AHEAD) {
-      var item = run.plan[run.next++];
+    // Put obstacles on the track once the floor under them exists, looking for
+    // it straight ahead of the ball.
+    for (var n = run.next; ref !== null && n < run.plan.length; n++) {
+      var item = run.plan[n];
       var s = run.startS + item.at;
-      run.parts = run.parts.concat(buildObstacle(item, s, trackAt(frame.pieces, s) || fallback, run.spec));
-    }
-    if (!run.finishShown && run.goalS < ball.s + ACTIVATE_AHEAD) {
-      run.finishShown = true;
-      run.parts = run.parts.concat(finishLine(run.goalS, trackAt(frame.pieces, run.goalS) || fallback));
+      if (item.state === "placed" || item.state === "skipped") {
+        if (n === run.next) run.next++;
+        continue;
+      }
+      if (s > ball.s + PLACE_AHEAD) break;
+      if (s < ball.s + GIVE_UP_AHEAD) { item.state = "skipped"; continue; } // no floor there in time (a gap)
+      if (item.state === "found") {
+        run.parts = run.parts.concat(buildObstacle(item, s, item.floor, run.spec));
+        item.state = "placed";
+      } else if (item.state !== "probing") {
+        probe(item, s, ball.x, ref);
+      }
     }
     var t = now();
     run.parts.forEach(function (p) { if (p.move) p.move(p, t); });
@@ -270,19 +344,24 @@
         var bs = from.s + (ball.s - from.s) * k, bx = from.x + (ball.x - from.x) * k, bh = from.h + (ball.h - from.h) * k;
         for (var j = 0; j < run.parts.length; j++) {
           var p = run.parts[j];
-          if (p.solid && touches(p, bs, bx, bh, floor)) { run.hit = p.kind; break; }
+          if (p.solid && touches(p, bs, bx, bh)) { run.hit = p.kind; break; }
         }
       }
       run.progress = Math.max(0, Math.min(1, (ball.s - run.startS) / run.spec.length));
       if (run.hit) {
         mode = "failed";
+        lastEnd = game.gameTime();
         if (!game.send("collide death")) showResult(null);
       } else if (ball.s >= run.goalS) {
         mode = "won";
         run.progress = 1;
         profile.completeLevel(run.spec.n);
-        if (!game.send("fall death")) showResult(null);
+        lastEnd = game.gameTime();
+        showResult(null); // first, so the crash that ends the run is never seen
+        game.send("collide death");
       }
+      // Below the floor it was rolling on: it fell off the track.
+      if (ref !== null && ball.h < ref - 1.5) run.fell = true;
       renderHud();
     }
     run.last = { s: ball.s, x: ball.x, h: ball.h };
@@ -291,7 +370,9 @@
   game.on("runstart", function () {
     gameAt = "run";
     clearInterval(startTimer);
+    clearTimeout(startDelay);
     clearInterval(menuTimer);
+    setStarting(null);
     if (pending !== null) {
       var n = pending;
       pending = null;
@@ -308,6 +389,7 @@
 
   game.on("runend", function (e) {
     gameAt = "score";
+    lastEnd = Math.max(lastEnd, game.gameTime() - 0.05);
     if (!run || mode === null) return;
     if (mode === "playing") mode = "failed"; // the game's own crash or a fall
     run.ended = true;
@@ -323,28 +405,49 @@
 
   game.on("adventure", function () { openGrid(null); });
 
-  // Ask the game to start a run, again until it does: right after a crash the
-  // game is still on its way to the score screen and ignores the request.
+  // Ask the game to start a run, again until it does. Right after a run ends
+  // the game is still on its way to its score screen and ignores the request,
+  // and 3 seconds after a run ends it clears the old track: a run started
+  // before that would lose its track. So wait until then, showing
+  // "Starting..." on the screen the player is looking at.
   function start(n) {
     if (!(n >= 1 && n <= profile.get().advUnlocked)) return;
     pending = n;
-    hideScreens();
     clearInterval(startTimer);
+    clearTimeout(startDelay);
     clearInterval(menuTimer);
+    setStarting(n);
     var tries = 0;
     function attempt() {
       if (pending === null) { clearInterval(startTimer); return; }
       if (tries++ > 20) {
         clearInterval(startTimer);
         pending = null;
+        setStarting(null);
         openGrid(null);
         els.gridStatus.textContent = "The game didn't start. Try again.";
         return;
       }
       game.send("resetPressed");
     }
-    attempt();
-    startTimer = setInterval(attempt, 500);
+    (function wait() {
+      if (pending === null) return;
+      if (game.gameTime() < lastEnd + CLEANUP) { startDelay = setTimeout(wait, 100); return; }
+      attempt();
+      startTimer = setInterval(attempt, 500);
+    })();
+  }
+
+  // While a level is starting, the screen shows it and its buttons wait.
+  function setStarting(n) {
+    if (!els.grid) return;
+    var busy = n !== null;
+    [els.resultMain, els.resultLevels, els.resultMenu, els.cont, els.back, els.more].forEach(function (b) { b.disabled = busy; });
+    els.list.classList.toggle("is-busy", busy);
+    if (busy) {
+      if (!els.result.hidden) els.resultMain.textContent = "Starting...";
+      if (!els.grid.hidden) els.gridStatus.textContent = "Starting level " + n + "...";
+    }
   }
 
   function goToMenu() {
@@ -450,7 +553,7 @@
   }
 
   game.on("scene", function (scene) {
-    if (!run || !run.parts.length || gfxFailed || run.floor === undefined) return;
+    if (!run || !run.parts.length || gfxFailed) return;
     var gl = scene.gl;
     if (!gfx || gfx.gl !== gl) {
       try { gfx = setup(gl); } catch (e) { gfxFailed = true; console.warn("Slope adventure: can't draw obstacles", e); return; }
@@ -461,7 +564,7 @@
     gl.uniform3fv(gfx.u.uAxisY, NORMAL);
     run.parts.forEach(function (p) {
       var c = Math.cos(p.turn), sn = Math.sin(p.turn);
-      gl.uniform3fv(gfx.u.uCentre, game.toWorld(p.s, run.floor + p.lift + p.hh, p.x));
+      gl.uniform3fv(gfx.u.uCentre, game.toWorld(p.s, p.base + p.lift + p.hh, p.x));
       gl.uniform3f(gfx.u.uAxisX, SIDE[0] * c + DOWNHILL[0] * sn, SIDE[1] * c + DOWNHILL[1] * sn, SIDE[2] * c + DOWNHILL[2] * sn);
       gl.uniform3f(gfx.u.uAxisZ, DOWNHILL[0] * c - SIDE[0] * sn, DOWNHILL[1] * c - SIDE[1] * sn, DOWNHILL[2] * c - SIDE[2] * sn);
       gl.uniform3f(gfx.u.uHalf, p.hx, p.hh, p.hs);
@@ -551,8 +654,20 @@
     hud.hidden = true;
     hud.innerHTML =
       '<p class="slope-adventure-hud-title"></p>' +
-      '<div class="slope-xp-bar slope-adventure-hud-bar" aria-hidden="true">' + xpCells() + "</div>";
+      '<div class="slope-xp-bar slope-adventure-hud-bar" aria-hidden="true">' + xpCells() + "</div>" +
+      '<p class="slope-adventure-hud-togo"></p>';
     ui.root.appendChild(hud);
+
+    // Shown for a moment when a level starts, so it doesn't feel like a normal run.
+    var intro = document.createElement("div");
+    intro.className = "slope-level-intro";
+    intro.setAttribute("role", "status");
+    intro.hidden = true;
+    intro.innerHTML =
+      '<p class="slope-level-intro-title"></p>' +
+      '<p class="slope-level-intro-kinds"></p>' +
+      '<p class="slope-level-intro-goal"></p>';
+    ui.root.appendChild(intro);
 
     els = {
       grid: grid,
@@ -567,9 +682,13 @@
       resultBar: result.querySelector(".slope-result-bar"),
       resultStats: result.querySelector(".slope-result-stats"),
       resultMain: result.querySelector(".slope-result-main"),
+      resultLevels: result.querySelector(".slope-result-levels"),
+      resultMenu: result.querySelector(".slope-result-menu"),
       hud: hud,
       hudTitle: hud.querySelector(".slope-adventure-hud-title"),
-      hudBar: hud.querySelector(".slope-adventure-hud-bar")
+      hudBar: hud.querySelector(".slope-adventure-hud-bar"),
+      hudToGo: hud.querySelector(".slope-adventure-hud-togo"),
+      intro: intro
     };
 
     els.cont.addEventListener("click", function () { start(profile.get().advUnlocked); });
@@ -579,17 +698,17 @@
     });
     els.list.addEventListener("click", function (e) {
       var tile = e.target.closest("[data-level]");
-      if (tile && !tile.disabled) start(+tile.getAttribute("data-level"));
+      if (tile && !tile.disabled && pending === null) start(+tile.getAttribute("data-level"));
     });
     grid.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { if (gameAt === "score") goToMenu(); else closeGrid(); }
+      if (e.key !== "Escape" || pending !== null) return;
+      if (gameAt === "score") goToMenu(); else closeGrid();
     });
     els.resultMain.addEventListener("click", function () {
-      var n = +els.resultMain.getAttribute("data-level");
-      start(n);
+      if (pending === null) start(+els.resultMain.getAttribute("data-level"));
     });
-    result.querySelector(".slope-result-levels").addEventListener("click", function () { openGrid(null); });
-    result.querySelector(".slope-result-menu").addEventListener("click", goToMenu);
+    els.resultLevels.addEventListener("click", function () { openGrid(null); });
+    els.resultMenu.addEventListener("click", goToMenu);
 
     // More levels appear as you scroll down: the grid never ends.
     if ("IntersectionObserver" in window) {
@@ -631,6 +750,9 @@
 
   function hideScreens() {
     if (!els.grid) return;
+    // Let go of focus too: keys pressed in the page's UI never reach the game,
+    // so a focused (now hidden) button would stop the ball from steering.
+    if (els.grid.contains(document.activeElement) || els.result.contains(document.activeElement)) document.activeElement.blur();
     els.grid.hidden = true;
     els.result.hidden = true;
   }
@@ -664,14 +786,15 @@
     els.resultTitle.textContent = "Level " + spec.n + (won ? " complete" : " failed");
     els.resultLine.textContent = won
       ? (spec.n + 1 === profile.get().advUnlocked ? "Level " + (spec.n + 1) + " unlocked." : "Well rolled.")
-      : run.hit ? "You hit " + KINDS[run.hit].hit + "." : "You crashed before the finish line.";
+      : run.hit ? "You hit " + KINDS[run.hit].hit + "."
+      : run.fell ? "You fell off the track." : "You crashed before the finish line.";
     fill(els.resultBar, run.progress);
     els.resultBar.setAttribute("aria-valuenow", String(Math.round(run.progress * 100)));
     var gems = window.SlopeGems ? window.SlopeGems.currentRun().gems : 0;
     els.resultStats.textContent = Math.round(run.progress * 100) + "% of the level" +
       (score !== null && score !== undefined ? "  \u00b7  Score " + score + "  \u00b7  +" + score * profile.xpPerPoint + " XP" : "") +
       (gems ? "  \u00b7  +" + gems + (gems === 1 ? " gem" : " gems") : "");
-    els.resultMain.textContent = won ? "Next level" : "Retry";
+    els.resultMain.textContent = pending !== null ? "Starting..." : won ? "Next level" : "Retry";
     els.resultMain.setAttribute("data-level", String(won ? spec.n + 1 : spec.n));
     els.grid.hidden = true;
     els.result.classList.toggle("is-won", won);
@@ -690,6 +813,7 @@
 
   function hideHud() {
     if (els.hud) els.hud.hidden = true;
+    hideIntro();
   }
 
   function renderHud() {
@@ -697,6 +821,26 @@
     var text = "Level " + run.spec.n + "  " + run.spec.title;
     if (els.hudTitle.textContent !== text) els.hudTitle.textContent = text;
     fill(els.hudBar, run.progress);
+    var left = Math.max(0, Math.ceil((1 - run.progress) * run.spec.length));
+    var toGo = left ? left + " to the finish" : "Finish!";
+    if (els.hudToGo.textContent !== toGo) els.hudToGo.textContent = toGo;
+  }
+
+  var introTimer = 0;
+
+  function showIntro(spec) {
+    if (!els.intro) return;
+    els.intro.querySelector(".slope-level-intro-title").textContent = "Level " + spec.n;
+    els.intro.querySelector(".slope-level-intro-kinds").textContent = spec.title;
+    els.intro.querySelector(".slope-level-intro-goal").textContent = "Avoid the red obstacles and reach the finish line";
+    els.intro.hidden = false;
+    clearTimeout(introTimer);
+    introTimer = setTimeout(hideIntro, 3000);
+  }
+
+  function hideIntro() {
+    clearTimeout(introTimer);
+    if (els.intro) els.intro.hidden = true;
   }
 
   window.SlopeAdventure = {
@@ -710,7 +854,13 @@
       }
       return Math.abs(run.goalS - s) > 3;
     },
-    handlesRun: function () { return !!run && mode !== null; }
+    handlesRun: function () { return !!run && mode !== null; },
+    // The obstacles on the track now (slope coordinates; for tools and tests).
+    obstacles: function () {
+      return run ? run.parts.map(function (p) {
+        return { kind: p.kind, s: p.s, x: p.x, h: p.base + p.lift + p.hh, hx: p.hx, hs: p.hs, hh: p.hh, base: p.base, turn: p.turn, solid: p.solid };
+      }) : [];
+    }
   };
 
   window.SlopeUI.ready(buildScreens);
