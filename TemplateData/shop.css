@@ -7,6 +7,7 @@
 
 .slope-shop-balance {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 10px;
@@ -19,6 +20,45 @@
 .slope-shop-gems-label {
   font-family: var(--slope-text);
   font-size: 16px;
+}
+
+.slope-shop-mult {
+  margin-left: 6px;
+  white-space: nowrap;
+  padding: 5px 8px;
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  font-family: var(--slope-text);
+  font-size: 14px;
+}
+
+/* Tabs: like the settings options, the open tab is filled in. */
+.slope-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.slope-tab {
+  min-width: 130px;
+  min-height: 44px;
+  padding: 0 18px;
+}
+
+.slope-shop .slope-tab[aria-selected="true"],
+.slope-shop .slope-tab[aria-selected="true"]:hover {
+  background: var(--slope-color);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  color: var(--slope-ground);
+}
+
+.slope-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.slope-tab-panel[hidden] {
+  display: none;
 }
 
 .slope-shop-note,
@@ -57,8 +97,9 @@
 }
 
 .slope-skin-preview {
-  width: 96px;
-  height: 96px;
+  /* Same size as the preview drawing (PREVIEW_CSS in skins.js), so no rescaling. */
+  width: 88px;
+  height: 88px;
   max-width: 100%;
 }
 
@@ -94,5 +135,179 @@
 @media (max-width: 400px) {
   .slope-skins {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --- Upgrades tab: an endless tree of gem multiplier boosts --------------- */
+
+.slope-upgrades-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.slope-upgrades-mult {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.slope-upgrades-mult-label {
+  font-size: 15px;
+}
+
+.slope-upgrades-mult-value {
+  font-family: var(--slope-display);
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Geometry matches upgrades.js: 64px nodes, 26px between rows and tiers,
+   three equal columns with node centres at 1/6, 1/2 and 5/6. */
+.slope-tree {
+  position: relative;
+  width: min(520px, 100%);
+  margin: 4px auto 0;
+}
+
+.slope-tree-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.slope-tree-line {
+  fill: none;
+  stroke: var(--slope-dim);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  shape-rendering: crispEdges;
+  opacity: 0.6;
+}
+
+.slope-tree-line.is-lit {
+  stroke: var(--slope-color);
+  opacity: 1;
+}
+
+.slope-tree-tiers {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slope-tier {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: 64px 64px;
+  row-gap: 26px;
+}
+
+.slope-tier-label {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--slope-dim);
+  font-size: 13px;
+  text-align: center;
+}
+
+.slope-tier-label span {
+  color: var(--slope-color);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.slope-upgrade {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 6px;
+  min-width: 0;
+}
+
+.slope-upgrade-l { grid-column: 1; grid-row: 1; }
+.slope-upgrade-r { grid-column: 3; grid-row: 1; }
+.slope-upgrade-c { grid-column: 2; grid-row: 2; }
+
+.slope-upgrade-boost {
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-upgrade-price {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--slope-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Milestones (every 10th tier) get a double outline. */
+.slope-upgrade.is-milestone {
+  box-shadow: inset 0 0 0 2px var(--slope-color), inset 0 0 0 4px var(--slope-ground), inset 0 0 0 6px var(--slope-color);
+}
+
+/* Bought: filled in, like a selected option. */
+.slope-shop .slope-upgrade.is-owned,
+.slope-shop .slope-upgrade.is-owned:disabled,
+.slope-shop .slope-upgrade.is-owned:disabled:hover {
+  background: var(--slope-color);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  color: var(--slope-ground);
+  cursor: default;
+}
+
+/* Open but too expensive: dimmed (still focusable, to hear its price). */
+.slope-shop .slope-upgrade.is-short,
+.slope-shop .slope-upgrade.is-short:hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: not-allowed;
+}
+
+/* Locked: needs the upgrades above it first. */
+.slope-shop .slope-upgrade.is-locked,
+.slope-shop .slope-upgrade.is-locked:hover {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--slope-dim) 55%, #000);
+  color: color-mix(in srgb, var(--slope-dim) 70%, #000);
+  cursor: not-allowed;
+}
+
+.slope-tree-more {
+  color: var(--slope-dim);
+  font-size: 14px;
+  text-align: center;
+}
+
+@media (max-width: 400px) {
+  .slope-upgrade {
+    margin: 0 3px;
+  }
+
+  .slope-upgrade-boost {
+    font-size: 16px;
+  }
+
+  .slope-tab {
+    min-width: 0;
+    flex: 1;
   }
 }

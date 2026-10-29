@@ -39,6 +39,8 @@
  *   SlopeGame.send(eventName)      send an event to the game's EventManager
  *   SlopeGame.inRun()              true while a run is going
  *   SlopeGame.gameTime()           seconds on the game's clock (slower than real time on slow frames)
+ *   SlopeGame.pause(reason) / resume(reason) / paused()
+ *   SlopeGame.on("scene", fn, wants)  wants(): anything to draw this frame?
  *   SlopeGame.on("scene", function ({ gl, vp }) { ... })   WebGL2 only
  *   SlopeGame.paintBall(function ({ gl, vp, o2w, draw }) { ... return true; })
  *   SlopeGame.paintTrail(function ({ gl, program, draw }) { ... return true; })
@@ -54,9 +56,14 @@
   var SQRT1_2 = Math.SQRT1_2;
 
   var handlers = {};
+  var sceneWants = [];   // per "scene" handler: does it have anything to draw this frame?
   var ballPainter = null;
   var trailPainter = null;
-  function on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); }
+  function on(name, fn, wants) {
+    (handlers[name] = handlers[name] || []).push(fn);
+    if (name === "scene") sceneWants.push(wants || function () { return true; });
+  }
+  var gameDrew = false;  // the game drew something in this animation frame
   function emit(name, data) {
     (handlers[name] || []).forEach(function (fn) {
       try { fn(data); } catch (e) { console.error(e); }
@@ -254,16 +261,19 @@
     var SWITCHES = gl.createVertexArray ? [gl.BLEND, gl.DEPTH_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.SCISSOR_TEST,
       gl.POLYGON_OFFSET_FILL, gl.SAMPLE_ALPHA_TO_COVERAGE, gl.SAMPLE_COVERAGE, gl.RASTERIZER_DISCARD] : [];
 
+    // The state it changes is tracked as the game sets it, so saving it needs
+    // no queries (a query like getParameter(DEPTH_FUNC) can stall the GPU).
     function drawScene(viewProjection) {
       if (!handlers.scene || !gl.createVertexArray) return;
+      if (!sceneWants.some(function (w) { try { return w(); } catch (e) { return false; } })) return;
       var saved = {
-        program: gl.getParameter(gl.CURRENT_PROGRAM),
-        vertexArray: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
-        arrayBinding: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
+        program: currentProgram,
+        vertexArray: currentVao,
+        arrayBinding: arrayBuffer,
         switches: SWITCHES.map(function (c) { return gl.isEnabled(c); }),
-        depthFunc: gl.getParameter(gl.DEPTH_FUNC),
-        depthMask: gl.getParameter(gl.DEPTH_WRITEMASK),
-        colorMask: gl.getParameter(gl.COLOR_WRITEMASK),
+        depthFunc: depthFuncNow,
+        depthMask: depthMaskNow,
+        colorMask: colorMaskNow.slice(),
         tracked: { vao: vao, arrayBuffer: arrayBuffer }
       };
       SWITCHES.forEach(function (c) { if (c === gl.DEPTH_TEST) gl.enable(c); else gl.disable(c); });
@@ -275,6 +285,7 @@
       } finally {
         gl.useProgram(saved.program);
         raw.bindVertexArray.call(gl, saved.vertexArray);
+        currentVao = saved.vertexArray;
         raw.bindBuffer.call(gl, gl.ARRAY_BUFFER, saved.arrayBinding);
         SWITCHES.forEach(function (c, i) { if (saved.switches[i]) gl.enable(c); else gl.disable(c); });
         gl.depthFunc(saved.depthFunc);
@@ -288,7 +299,11 @@
     // The speed-up trail is drawn with the game's only shader that multiplies
     // a texture by vertex colours. Keep each program's sources so it can be
     // recognised (and copied by a trail painter).
-    var currentProgram = null;
+    var currentProgram = null, currentVao = null;
+    var depthFuncNow = gl.LESS, depthMaskNow = true, colorMaskNow = [true, true, true, true];
+    wrap("depthFunc", function (a) { depthFuncNow = a[0]; });
+    wrap("depthMask", function (a) { depthMaskNow = !!a[0]; });
+    wrap("colorMask", function (a) { colorMaskNow = [!!a[0], !!a[1], !!a[2], !!a[3]]; });
     wrap("shaderSource", function (a) { if (a[0]) a[0].__slopeSource = a[1]; });
     wrap("attachShader", function (a) { if (a[0]) (a[0].__slopeShaders = a[0].__slopeShaders || []).push(a[1]); });
     wrap("linkProgram", function (a) {
@@ -300,6 +315,9 @@
         /SV_Target0 = u_xlat10_0 \* vs_COLOR0;/.test(src[1]);
     });
     wrap("useProgram", function (a) { currentProgram = a[0]; });
+    // A deleted object is no longer bound (and can't be bound again).
+    wrap("deleteBuffer", function (a) { if (a[0] && a[0] === arrayBuffer) arrayBuffer = null; });
+    wrap("deleteVertexArray", function (a) { if (a[0] && a[0] === currentVao) { currentVao = null; vao = defaultVao; } });
 
     function isTrail() {
       return trailPainter && onScreen && currentProgram && currentProgram.__slopeTrail;
@@ -319,6 +337,7 @@
 
     raw.drawArrays = gl.drawArrays;
     gl.drawArrays = function () {
+      gameDrew = true;
       if (isTrail() && paintTrail(arguments, "drawArrays")) return;
       raw.drawArrays.apply(gl, arguments);
     };
@@ -328,7 +347,7 @@
       if (a[0] === gl.ARRAY_BUFFER) arrayBuffer = a[1];
       else if (a[0] === gl.ELEMENT_ARRAY_BUFFER) vao.elements = a[1];
     });
-    wrap("bindVertexArray", function (a) { vao = a[0] || defaultVao; if (!vao.__slopeInit) vao.__slopeInit = true; });
+    wrap("bindVertexArray", function (a) { currentVao = a[0] || null; vao = a[0] || defaultVao; if (!vao.__slopeInit) vao.__slopeInit = true; });
     wrap("vertexAttribPointer", function (a) {
       if (a[0] === 0) vao.attrib0 = { buffer: arrayBuffer, stride: a[4] || 12, offset: a[5] };
     });
@@ -366,20 +385,50 @@
       if (a[0] === gl.FRAMEBUFFER || a[0] === DRAW_FRAMEBUFFER) onScreen = !a[1];
     });
     wrap("getUniformLocation", function (a, loc) {
-      if (loc && (a[1] === VP_NAME || a[1] === O2W_NAME)) loc.__slopeName = a[1];
+      if (!loc) return;
+      if (a[1] === VP_NAME || a[1] === O2W_NAME) loc.__slopeName = a[1];
+      if (a[0] && a[0].__slopeTrail) {
+        (a[0].__slopeLocs = a[0].__slopeLocs || {})[a[1]] = loc;
+        loc.__slopeKeep = true;
+      }
     });
+    var o2wBuffer = new Float32Array(16);
     wrap("uniform4fv", function (a) {
       // Copy now: Emscripten passes views into memory it reuses for later calls.
-      var name = a[0] && a[0].__slopeName;
+      var loc = a[0];
+      if (!loc) return;
+      var name = loc.__slopeName;
       if (name === VP_NAME) vp = new Float32Array(a[1].subarray(0, 16));
-      else if (name === O2W_NAME) o2w = new Float32Array(a[1].subarray(0, 16));
+      else if (name === O2W_NAME) { o2wBuffer.set(a[1].subarray(0, 16)); o2w = o2wBuffer; }
+      if (loc.__slopeKeep) keep("uniform4fv", a);
+    });
+    // Keep a copy of a call's values: the location's __slopeValue is
+    // [method, ...arguments after the location], replayable on another program.
+    function keep(method, a) {
+      var out = [method];
+      for (var i = 1; i < a.length; i++) {
+        var v = a[i];
+        if (v && v.buffer) { // a view of the game's memory: copy just what is read
+          var from = a[i + 1] || 0, len = a[i + 2];
+          out.push(v.slice(from, len ? from + len : v.length));
+          break;
+        }
+        out.push(v);
+      }
+      a[0].__slopeValue = out;
+    }
+    ["uniform1i", "uniform1f", "uniform2f", "uniform3f", "uniform4f",
+     "uniform1iv", "uniform1fv", "uniform2fv", "uniform3fv", "uniform4iv",
+     "uniformMatrix3fv", "uniformMatrix4fv"].forEach(function (method) {
+      if (!gl[method]) return;
+      wrap(method, function (a) { if (a[0] && a[0].__slopeKeep) keep(method, a); });
     });
     // The ball can be drawn by the page instead (ball skins): the painter
     // draws the game's own ball mesh with its own program, so position, size,
     // rolling and depth all stay the game's.
     function paintBall(args) {
       if (!ballPainter) return false;
-      var program = gl.getParameter(gl.CURRENT_PROGRAM);
+      var program = currentProgram;
       try {
         return !!ballPainter({ gl: gl, vp: vp, o2w: o2w, draw: function () { raw.drawElements.apply(gl, args); } });
       } catch (e) {
@@ -392,6 +441,7 @@
 
     raw.drawElements = gl.drawElements;
     gl.drawElements = function (mode, count) {
+      gameDrew = true;
       var seen = onScreen && vp && o2w && isPerspective(vp);
       var isBall = seen && count === BALL_INDEX_COUNT;
       var painted = isBall ? paintBall(arguments) : isTrail() && paintTrail(arguments, "drawElements");
@@ -433,14 +483,23 @@
   // as at most a third of a second (Unity's maximum delta time), so on a slow
   // device it falls behind the wall clock. The game's delayed events (like
   // the track clean-up after a crash) run on it.
+  var pauseReasons = {}, paused = false;
+  function applyPause() {
+    var instance = window.gameInstance, m = instance && instance.Module;
+    if (!m || !m.pauseMainLoop || !m.SendMessage) return; // still loading
+    var want = Object.keys(pauseReasons).length > 0;
+    try {
+      if (want && !paused) { m.pauseMainLoop(); paused = true; }
+      else if (!want && paused) { m.resumeMainLoop(); paused = false; }
+    } catch (e) { console.warn("Slope: can't pause the game", e); }
+  }
+
+  // Only frames the game draws count, so a paused game's clock stands still.
   var gameTime = 0, lastFrameTime = null;
   var raf = window.requestAnimationFrame;
   window.requestAnimationFrame = function (callback) {
     return raf.call(window, function (time) {
-      if (time !== lastFrameTime) {
-        if (lastFrameTime !== null) gameTime += Math.min(Math.max(0, time - lastFrameTime) / 1000, 1 / 3);
-        lastFrameTime = time;
-      }
+      gameDrew = false;
       // Probes asked for since the last answer are answered by the next frame
       // the game draws (other code's animation frames draw nothing).
       if (!probing.length && probeQueue.length) {
@@ -450,6 +509,10 @@
       try {
         callback(time);
       } finally {
+        if (gameDrew && time !== lastFrameTime) {
+          if (lastFrameTime !== null) gameTime += Math.min(Math.max(0, time - lastFrameTime) / 1000, 1 / 3);
+          lastFrameTime = time;
+        }
         if (frame) {
           var answered = probing, done = frame;
           probing = [];
@@ -477,6 +540,11 @@
     },
     inRun: function () { return inRun; },
     gameTime: function () { return gameTime; },
+    // Pause the game while the page covers it (shop, career); resumes when
+    // every reason to pause is gone.
+    pause: function (reason) { pauseReasons[reason] = true; applyPause(); },
+    resume: function (reason) { delete pauseReasons[reason]; applyPause(); },
+    paused: function () { return paused; },
     paintBall: function (fn) { ballPainter = fn || null; },
     paintTrail: function (fn) { trailPainter = fn || null; },
     // Ask for the surfaces under points [{ s, x }]. done(hits) runs after the

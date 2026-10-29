@@ -93,8 +93,21 @@
     { id: "earth", name: "Earth", price: 70, pattern: 16, trail: [0.2, 0.55, 1.0] },
     { id: "gold", name: "Gold", price: 75, pattern: 10, trail: [1.0, 0.75, 0.25] },
     { id: "disco", name: "Disco", price: 80, pattern: 19, trail: "rainbow" },
-    { id: "galaxy", name: "Galaxy", price: 100, pattern: 18, trail: [0.6, 0.3, 1.0] }
+    { id: "galaxy", name: "Galaxy", price: 100, pattern: 18, trail: [0.6, 0.3, 1.0] },
+    { id: "smiley", name: "Smiley", price: 30, pattern: 27, trail: [1.0, 0.85, 0.1] },
+    { id: "zebra", name: "Zebra", price: 35, pattern: 22, trail: [0.95, 0.95, 0.95] },
+    { id: "golf", name: "Golf", price: 35, pattern: 28, points: fibonacci(80, 0.05), trail: [0.9, 0.95, 0.9] },
+    { id: "tiger", name: "Tiger", price: 40, pattern: 21, trail: [1.0, 0.55, 0.1] },
+    { id: "camo", name: "Camo", price: 45, pattern: 23, trail: [0.5, 0.6, 0.3] },
+    { id: "honeycomb", name: "Honeycomb", price: 50, pattern: 26, trail: [1.0, 0.7, 0.1] },
+    { id: "marble", name: "Marble", price: 55, pattern: 24, trail: [0.85, 0.9, 1.0] },
+    { id: "circuit", name: "Circuit", price: 65, pattern: 25, trail: [0.3, 1.0, 0.5] },
+    { id: "sun", name: "Sun", price: 85, pattern: 29, trail: [1.0, 0.6, 0.1] },
+    { id: "plasma", name: "Plasma", price: 120, pattern: 30, trail: "rainbow" }
   ];
+
+  // The shop lists them cheapest first (Classic, free, stays first).
+  SKINS.sort(function (a, b) { return a.price - b.price; });
 
   SKINS.forEach(function (skin) {
     var flat = new Float32Array(MAX_POINTS * 3);
@@ -140,6 +153,8 @@
     "uniform vec3 uPoints[" + MAX_POINTS + "];",
     "uniform int uCount;",
     "uniform int uSplit;",
+    "uniform vec3 uTint;",
+    "uniform int uBakeTint;",
     "out vec4 outColor;",
     "",
     "const float PI = 3.14159265;",
@@ -291,14 +306,76 @@
     "    vec3 r = reflect(-v, n);",
     "    vec3 mirror = vec3(0.75, 0.8, 0.9) * (0.4 + 0.6 * k) * (0.6 + 0.6 * smoothstep(-0.2, 0.8, r.y)) * flash;",
     "    col = mirror * (1.0 - 0.85 * grout);",
-    "  } else {", // Ice
+    "  } else if (uPattern == 20) {", // Ice
     "    vec3 c = cells(p);",
     "    vec3 base = mix(vec3(0.45, 0.7, 0.9), vec3(0.75, 0.9, 1.0), noise3(p * 6.0));",
     "    base = mix(base, vec3(0.97, 1.0, 1.0), line(c.x - c.y, 0.01) * 0.8);",
     "    col = base * shade + vec3(0.6, 0.85, 1.0) * pow(1.0 - facing, 2.5) * 0.7;",
+    "  } else if (uPattern == 21) {", // Tiger
+    "    float stripe = fill(sin(lon * 6.0 + 4.0 * fbm(p * 2.5)) - 0.45);",
+    "    vec3 fur = mix(vec3(1.0, 0.55, 0.1), vec3(1.0, 0.85, 0.6), smoothstep(-0.5, -0.9, p.y));",
+    "    col = mix(fur, vec3(0.03), stripe) * shade;",
+    "  } else if (uPattern == 22) {", // Zebra
+    "    float stripe = fill(sin(p.y * 13.0 + 3.0 * fbm(p * 2.0) + 1.5 * sin(lon * 2.0)));",
+    "    col = mix(vec3(0.95), vec3(0.03), stripe) * shade;",
+    "  } else if (uPattern == 23) {", // Camo
+    "    float a = fbm(p * 2.6), b = fbm(p * 2.6 + 9.0);",
+    "    vec3 c1 = mix(vec3(0.33, 0.36, 0.2), vec3(0.18, 0.25, 0.12), fill(a - 0.5));",
+    "    c1 = mix(c1, vec3(0.32, 0.23, 0.13), fill(b - 0.56));",
+    "    c1 = mix(c1, vec3(0.55, 0.5, 0.34), fill(a - b - 0.18));",
+    "    col = c1 * shade;",
+    "  } else if (uPattern == 24) {", // Marble
+    "    float vein = abs(sin(p.x * 4.0 + p.y * 2.0 + fbm(p * 3.0) * 8.0));",
+    "    vec3 base = mix(vec3(0.35, 0.38, 0.45), vec3(0.93, 0.92, 0.9), smoothstep(0.0, 0.25, vein));",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 30.0);",
+    "    col = base * shade + vec3(spec * 0.5);",
+    "  } else if (uPattern == 25 || uPattern == 26) {", // Circuit, Honeycomb: on a cube's faces
+    "    vec3 a = abs(p);",
+    "    vec2 uv; float faceId;",
+    "    if (a.x >= a.y && a.x >= a.z) { uv = p.yz / a.x; faceId = p.x > 0.0 ? 1.0 : 2.0; }",
+    "    else if (a.y >= a.z) { uv = p.xz / a.y; faceId = p.y > 0.0 ? 3.0 : 4.0; }",
+    "    else { uv = p.xy / a.z; faceId = p.z > 0.0 ? 5.0 : 6.0; }",
+    "    if (uPattern == 25) {",
+    "      vec2 q = uv * 3.0 + 3.0, cell = floor(q), f = fract(q);",
+    "      float h = hash3(vec3(cell, faceId));",
+    "      float trace = line(h < 0.5 ? abs(f.y - 0.5) : abs(f.x - 0.5), 0.07);",
+    "      float pad = h > 0.75 ? line(abs(length(f - 0.5) - 0.16), 0.05) : 0.0;",
+    "      vec3 board = vec3(0.02, 0.13, 0.07) * shade;",
+    "      col = mix(board, vec3(0.3, 1.0, 0.5), max(trace, 0.0));",
+    "      col = mix(col, vec3(1.0, 0.8, 0.3), pad);",
+    "    } else {",
+    "      vec2 q = uv * 3.0;",
+    "      vec2 r = vec2(1.0, 1.7320508), hr = r * 0.5;",
+    "      vec2 ga = mod(q, r) - hr, gb = mod(q - hr, r) - hr;",
+    "      vec2 g = dot(ga, ga) < dot(gb, gb) ? ga : gb;",
+    "      float edge = 0.5 - max(dot(abs(g), vec2(0.5, 0.8660254)), abs(g.x));",
+    "      vec3 honey = mix(vec3(0.75, 0.42, 0.02), vec3(1.0, 0.78, 0.2), smoothstep(0.0, 0.4, edge));",
+    "      col = mix(vec3(0.25, 0.12, 0.0), honey, smoothstep(0.03, 0.08, edge)) * shade;",
+    "    }",
+    "  } else if (uPattern == 27) {", // Smiley
+    "    vec3 face = vec3(1.0, 0.86, 0.12);",
+    "    float front = step(0.0, p.z);",
+    "    float eyes = 1.0 - fill(min(length(p.xy - vec2(-0.25, 0.25)), length(p.xy - vec2(0.25, 0.25))) - 0.09);",
+    "    float smile = line(abs(length(p.xy - vec2(0.0, 0.08)) - 0.42), 0.035) * step(p.y, -0.05);",
+    "    col = mix(face, vec3(0.08, 0.05, 0.0), max(eyes, smile) * front) * shade;",
+    "  } else if (uPattern == 28) {", // Golf: white with dimples
+    "    vec3 c = cells(p);",
+    "    float d = sqrt(max(0.0, 2.0 - 2.0 * c.x));",
+    "    float dimple = 1.0 - smoothstep(0.0, 0.17, d);",
+    "    col = vec3(0.95) * shade * (1.0 - 0.18 * dimple);",
+    "  } else if (uPattern == 29) {", // Sun
+    "    float glow = fbm(p * 3.0 + vec3(0.0, uTime * 0.25, 0.0));",
+    "    col = mix(vec3(1.0, 0.42, 0.02), vec3(1.0, 0.95, 0.55), smoothstep(0.35, 0.75, glow));",
+    "    col += vec3(1.0, 0.5, 0.1) * pow(1.0 - facing, 2.0) * 0.6;",
+    "  } else {", // Plasma
+    "    float t = uTime;",
+    "    float k = sin(p.x * 6.0 + t) + sin(p.y * 7.0 - t * 1.3) + sin(p.z * 5.0 + t * 0.7) + sin(length(p.xy) * 8.0 - t);",
+    "    col = hue(k * 0.25 + t * 0.05) * (0.8 + 0.2 * shade);",
     "  }",
     "  // A faint rim keeps the round shape visible where the body is black.",
     "  col += vec3(0.1) * pow(1.0 - facing, 2.5) * step(max(col.r, max(col.g, col.b)), 0.04);",
+    "  // Shop previews bake in the track colour tint (the game gets it from CSS).",
+    "  if (uBakeTint == 1) col = vec3(col.r + uTint.r * (col.g - col.b), uTint.g * col.g + (1.0 - uTint.g) * col.b, uTint.b * col.g + (1.0 - uTint.b) * col.b);",
     "  outColor = vec4(col, 1.0);",
     "}"
   ].join("\n");
@@ -317,11 +394,11 @@
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     var u = {};
-    ["uViewProjection", "uObjectToWorld", "uPattern", "uCamera", "uLight", "uTime", "uPoints", "uCount", "uSplit"].forEach(function (name) {
+    ["uViewProjection", "uObjectToWorld", "uPattern", "uCamera", "uLight", "uTime", "uPoints", "uCount", "uSplit", "uTint", "uBakeTint"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     this.gl = gl;
-    this.use = function (skin, vp, o2w, camera, light, time) {
+    this.use = function (skin, vp, o2w, camera, light, time, tint) {
       gl.useProgram(program);
       gl.uniformMatrix4fv(u.uViewProjection, false, vp);
       gl.uniformMatrix4fv(u.uObjectToWorld, false, o2w);
@@ -332,6 +409,8 @@
       gl.uniform1i(u.uCount, skin.count);
       gl.uniform1i(u.uSplit, skin.split || 0);
       if (skin.count) gl.uniform3fv(u.uPoints, skin.flat);
+      gl.uniform1i(u.uBakeTint, tint ? 1 : 0);
+      if (tint) gl.uniform3fv(u.uTint, tint);
     };
   }
 
@@ -442,21 +521,9 @@
     }
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
-    // The game's uniforms, copied over before each draw.
-    var uniforms = [];
-    n = gl.getProgramParameter(unity, gl.ACTIVE_UNIFORMS);
-    for (i = 0; i < n; i++) {
-      var info = gl.getActiveUniform(unity, i);
-      var base = info.name.replace(/\[0\]$/, "");
-      for (var j = 0; j < info.size; j++) {
-        var name = info.size > 1 ? base + "[" + j + "]" : info.name;
-        var from = gl.getUniformLocation(unity, name), to = gl.getUniformLocation(program, name);
-        if (from && to) uniforms.push({ type: info.type, from: from, to: to });
-      }
-    }
     unity.__slopeTint = {
       program: program,
-      uniforms: uniforms,
+      locations: {},  // the game's uniform name -> this program's location
       tint: gl.getUniformLocation(program, "uSlopeTint"),
       rainbow: gl.getUniformLocation(program, "uSlopeRainbow"),
       time: gl.getUniformLocation(program, "uSlopeTime")
@@ -464,15 +531,16 @@
     return unity.__slopeTint;
   }
 
-  function copyUniform(gl, unity, u) {
-    var v = gl.getUniform(unity, u.from);
-    switch (u.type) {
-      case gl.FLOAT: gl.uniform1f(u.to, v); break;
-      case gl.FLOAT_VEC2: gl.uniform2fv(u.to, v); break;
-      case gl.FLOAT_VEC3: gl.uniform3fv(u.to, v); break;
-      case gl.FLOAT_VEC4: gl.uniform4fv(u.to, v); break;
-      case gl.FLOAT_MAT4: gl.uniformMatrix4fv(u.to, false, v); break;
-      default: gl.uniform1i(u.to, typeof v === "boolean" ? +v : v); // samplers, ints, bools
+  // The game's uniform values, as the bridge kept them when the game set them
+  // (reading them back with getUniform would stall the GPU every frame).
+  function copyUniforms(gl, unity, tinted) {
+    var locs = unity.__slopeLocs || {};
+    for (var name in locs) {
+      var value = locs[name].__slopeValue;
+      if (!value) continue;
+      var to = tinted.locations[name];
+      if (to === undefined) to = tinted.locations[name] = gl.getUniformLocation(tinted.program, name);
+      if (to) gl[value[0]].apply(gl, [to].concat(value.slice(1)));
     }
   }
 
@@ -489,7 +557,7 @@
     }
     if (!tinted) return false;
     gl.useProgram(tinted.program);
-    tinted.uniforms.forEach(function (u) { copyUniform(gl, t.program, u); });
+    copyUniforms(gl, t.program, tinted);
     var rainbow = trail === "rainbow";
     gl.uniform3fv(tinted.tint, rainbow ? [1, 1, 1] : trail);
     gl.uniform1f(tinted.rainbow, rainbow ? 1 : 0);
@@ -499,22 +567,31 @@
   });
 
   // --- Shop previews -----------------------------------------------------------
+  // One small WebGL canvas draws every preview. A preview is drawn once as a
+  // still (when its card scrolls into view, a few per frame) and copied into
+  // its card; only one card spins at a time: the one under the pointer or
+  // focus, else the equipped skin. The track colour tint is baked into the
+  // drawing, so the cards need no CSS filters.
 
-  var PREVIEW_CSS = 96;
+  var PREVIEW_CSS = 88;
+  var PREVIEW_SCALE = Math.min(1.5, window.devicePixelRatio || 1);
+  var STILL = -0.35;          // roll angle of a still: front facing, top showing
+  var SPIN_INTERVAL = 33;     // ms between frames of the spinning preview (~30 fps)
+  var STILLS_PER_FRAME = 3;
   var LIGHT_PREVIEW = normalize([0.35, 0.8, 0.5]);
   var preview = null;
 
   function setupPreview() {
-    var size = Math.round(PREVIEW_CSS * Math.min(2, window.devicePixelRatio || 1));
+    var size = Math.round(PREVIEW_CSS * PREVIEW_SCALE);
     var canvas = document.createElement("canvas");
     canvas.width = canvas.height = size;
-    var gl = canvas.getContext("webgl2", { antialias: true, preserveDrawingBuffer: true });
+    var gl = canvas.getContext("webgl2", { antialias: true, preserveDrawingBuffer: true, powerPreference: "low-power" });
     if (!gl) return null;
     var renderer;
     try { renderer = new Renderer(gl); } catch (e) { console.warn("Slope skins: no previews", e); return null; }
 
     // A unit sphere.
-    var rows = 28, cols = 40, pos = [], idx = [];
+    var rows = 24, cols = 32, pos = [], idx = [];
     for (var r = 0; r <= rows; r++) {
       var t = r / rows * Math.PI;
       for (var c = 0; c <= cols; c++) {
@@ -544,17 +621,23 @@
     var distance = 3.6;
     var vp = multiply(perspective(35 * Math.PI / 180, 0.1, 10),
       new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -distance, 1]));
-    return { canvas: canvas, gl: gl, renderer: renderer, vp: vp, camera: [0, 0, distance], count: idx.length };
+    return { canvas: canvas, gl: gl, renderer: renderer, vp: vp, camera: [0, 0, distance], count: idx.length, size: size };
   }
 
-  function drawPreview(skin, target, time) {
+  function themeRgb() {
+    var hex = (window.SlopeUI && window.SlopeUI.themeColor) || "#00ff00";
+    var n = parseInt(hex.slice(1), 16);
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+  }
+
+  function drawPreview(skin, target, angle, time, tint) {
     var p = preview;
     // Rolls towards the viewer, tilted so the top shows, like the ball on the track.
-    var o2w = multiply(rotation("z", 0.35), rotation("x", time * 0.8));
+    var o2w = multiply(rotation("z", 0.35), rotation("x", angle));
     p.gl.clear(p.gl.COLOR_BUFFER_BIT | p.gl.DEPTH_BUFFER_BIT);
-    p.renderer.use(skin, p.vp, o2w, p.camera, LIGHT_PREVIEW, time);
+    p.renderer.use(skin, p.vp, o2w, p.camera, LIGHT_PREVIEW, time, tint);
     p.gl.drawElements(p.gl.TRIANGLES, p.count, p.gl.UNSIGNED_SHORT, 0);
-    var ctx = target.getContext("2d");
+    var ctx = target.__ctx || (target.__ctx = target.getContext("2d"));
     ctx.clearRect(0, 0, target.width, target.height);
     ctx.drawImage(p.canvas, 0, 0, target.width, target.height);
   }
@@ -564,7 +647,12 @@
   var els = {};
   var openedFrom = null;
   var loop = 0;
-  var lastFilter = null;
+  var tab = "skins";
+  var hovered = null;          // card under the pointer or focus
+  var spinning = null;         // card spinning now
+  var spinFrom = 0, lastSpin = 0;
+  var stillTint = null;        // theme colour the stills were drawn in
+  var lastTintCheck = 0;
   var reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
 
   function gemIcon() {
@@ -582,19 +670,27 @@
       '<div class="slope-career-inner slope-shop-inner">' +
         '<h2 class="slope-career-title" id="slope-shop-title">Shop</h2>' +
         '<p class="slope-shop-balance">' + gemIcon().replace(/width="14" height="12"/, 'width="28" height="24"') +
-          '<span class="slope-shop-gems">0</span><span class="slope-shop-gems-label">gems</span></p>' +
-        '<p class="slope-shop-note">Collect gems on the track to buy ball skins.</p>' +
-        '<ul class="slope-skins">' +
-          SKINS.map(function (s) {
-            return '<li class="slope-skin" data-skin="' + s.id + '">' +
-              '<canvas class="slope-skin-preview" width="' + PREVIEW_CSS + '" height="' + PREVIEW_CSS + '" aria-hidden="true"></canvas>' +
-              '<p class="slope-skin-name">' + s.name + "</p>" +
-              '<p class="slope-skin-price"></p>' +
-              '<button type="button" class="slope-btn slope-skin-action"></button>' +
-            "</li>";
-          }).join("") +
-        "</ul>" +
-        '<p class="slope-shop-status" role="status"></p>' +
+          '<span class="slope-shop-gems">0</span><span class="slope-shop-gems-label">gems</span>' +
+          '<span class="slope-shop-mult"></span></p>' +
+        '<div class="slope-tabs" role="tablist" aria-label="Shop">' +
+          '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-skins" aria-controls="slope-panel-skins" data-tab="skins">Skins</button>' +
+          '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-upgrades" aria-controls="slope-panel-upgrades" data-tab="upgrades">Upgrades</button>' +
+        "</div>" +
+        '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-skins" aria-labelledby="slope-tab-skins">' +
+          '<p class="slope-shop-note">Collect gems on the track to buy ball skins. Each skin has its own speed-up trail.</p>' +
+          '<ul class="slope-skins">' +
+            SKINS.map(function (s) {
+              return '<li class="slope-skin" data-skin="' + s.id + '">' +
+                '<canvas class="slope-skin-preview" aria-hidden="true"></canvas>' +
+                '<p class="slope-skin-name">' + s.name + "</p>" +
+                '<p class="slope-skin-price"></p>' +
+                '<button type="button" class="slope-btn slope-skin-action"></button>' +
+              "</li>";
+            }).join("") +
+          "</ul>" +
+          '<p class="slope-shop-status" role="status"></p>' +
+        "</div>" +
+        '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-upgrades" aria-labelledby="slope-tab-upgrades" hidden></div>' +
         '<div class="slope-career-actions">' +
           '<button type="button" class="slope-btn slope-back">Back</button>' +
         "</div>" +
@@ -607,6 +703,8 @@
       gemsLabel: screen.querySelector(".slope-shop-gems-label"),
       status: screen.querySelector(".slope-shop-status"),
       back: screen.querySelector(".slope-back"),
+      tabs: Array.prototype.slice.call(screen.querySelectorAll(".slope-tab")),
+      panels: { skins: screen.querySelector("#slope-panel-skins"), upgrades: screen.querySelector("#slope-panel-upgrades") },
       cards: SKINS.map(function (s) {
         var li = screen.querySelector('[data-skin="' + s.id + '"]');
         return {
@@ -614,20 +712,59 @@
           li: li,
           canvas: li.querySelector("canvas"),
           price: li.querySelector(".slope-skin-price"),
-          action: li.querySelector(".slope-skin-action")
+          action: li.querySelector(".slope-skin-action"),
+          visible: false,
+          dirty: true
         };
       })
     };
 
-    var scale = Math.min(2, window.devicePixelRatio || 1);
     els.cards.forEach(function (card) {
-      card.canvas.width = card.canvas.height = Math.round(PREVIEW_CSS * scale);
+      card.canvas.width = card.canvas.height = Math.round(PREVIEW_CSS * PREVIEW_SCALE);
+      card.li.__card = card;
       card.action.addEventListener("click", function () { choose(card.skin); });
+      card.li.addEventListener("pointerenter", function () { hovered = card; });
+      card.li.addEventListener("pointerleave", function () { if (hovered === card) hovered = null; });
+      card.li.addEventListener("focusin", function () { hovered = card; });
+    });
+    els.tabs.forEach(function (b, i) {
+      b.addEventListener("click", function () { showTab(b.getAttribute("data-tab")); });
+      b.addEventListener("keydown", function (e) {
+        var step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        var to = els.tabs[(i + step + els.tabs.length) % els.tabs.length];
+        showTab(to.getAttribute("data-tab"));
+        to.focus();
+      });
     });
     els.back.addEventListener("click", close);
     screen.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
 
+    // Only cards on screen get their previews drawn.
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) { en.target.__card.visible = en.isIntersecting; });
+      }, { root: screen, rootMargin: "120px" });
+      els.cards.forEach(function (card) { io.observe(card.li); });
+    } else {
+      els.cards.forEach(function (card) { card.visible = true; });
+    }
+
+    showTab("skins");
     profile.onChange(render);
+  }
+
+  function showTab(name) {
+    tab = name;
+    els.tabs.forEach(function (b) {
+      var on = b.getAttribute("data-tab") === name;
+      b.setAttribute("aria-selected", String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+    Object.keys(els.panels).forEach(function (k) { els.panels[k].hidden = k !== name; });
+    els.panels[name].dispatchEvent(new CustomEvent("slope-show"));
+    if (!els.screen.hidden) startLoop();
   }
 
   function render(p) {
@@ -676,21 +813,44 @@
     if (card) card.action.focus();
   }
 
-  function drawPreviews(time) {
-    var filter = (document.getElementById("gameContainer") || {}).style;
-    filter = filter ? filter.filter : "";
-    var tint = filter !== lastFilter;
-    lastFilter = filter;
-    els.cards.forEach(function (card) {
-      if (tint) card.canvas.style.filter = filter; // match the track colour tint
-      drawPreview(card.skin, card.canvas, time);
-    });
+  function tick(now) {
+    loop = 0;
+    if (els.screen.hidden || tab !== "skins" || !preview) return;
+    // A new track colour (or a step of rainbow mode) redraws the stills.
+    var theme = window.SlopeUI.themeColor;
+    if (theme !== stillTint && now - lastTintCheck > 400) {
+      stillTint = theme;
+      lastTintCheck = now;
+      els.cards.forEach(function (card) { card.dirty = true; });
+    }
+    var tint = themeRgb();
+    // The spinning card: under the pointer or focus, else the equipped one.
+    var want = hovered || els.cards.filter(function (c) { return c.li.classList.contains("is-equipped"); })[0] || null;
+    if (reduceMotion.matches) want = null;
+    if (want !== spinning) {
+      if (spinning) spinning.dirty = true; // back to its still
+      spinning = want;
+      spinFrom = now;
+    }
+    var budget = STILLS_PER_FRAME;
+    for (var i = 0; i < els.cards.length && budget > 0; i++) {
+      var card = els.cards[i];
+      if (card.dirty && card.visible && card !== spinning) {
+        drawPreview(card.skin, card.canvas, STILL, 0, tint);
+        card.dirty = false;
+        budget--;
+      }
+    }
+    if (spinning && spinning.visible && now - lastSpin >= SPIN_INTERVAL) {
+      lastSpin = now;
+      drawPreview(spinning.skin, spinning.canvas, STILL + (now - spinFrom) / 1000 * 0.8, now / 1000, tint);
+    }
+    loop = requestAnimationFrame(tick);
   }
 
-  function tick(now) {
-    if (els.screen.hidden) { loop = 0; return; }
-    drawPreviews(now / 1000);
-    loop = reduceMotion.matches ? 0 : requestAnimationFrame(tick);
+  function startLoop() {
+    if (preview === null) preview = setupPreview() || false;
+    if (preview && !loop) loop = requestAnimationFrame(tick);
   }
 
   function open(from) {
@@ -702,14 +862,16 @@
     els.status.textContent = "";
     els.screen.hidden = false;
     els.screen.scrollTop = 0;
-    if (preview === null) preview = setupPreview() || false;
-    lastFilter = null;
-    if (preview && !loop) loop = requestAnimationFrame(tick);
+    // The game pauses behind the shop: nothing to see there, and the shop stays smooth.
+    if (game.pause) game.pause("shop");
+    showTab(tab);
     els.back.focus({ preventScroll: true });
   }
 
   function close() {
     els.screen.hidden = true;
+    if (game.resume) game.resume("shop");
+    hovered = null;
     if (openedFrom && document.contains(openedFrom)) openedFrom.focus();
     else if (els.screen.contains(document.activeElement)) document.activeElement.blur();
     openedFrom = null;
@@ -717,6 +879,12 @@
 
   game.on("shop", function () { open(null); });
 
-  window.SlopeShop = { open: open, skins: SKINS };
+  window.SlopeShop = {
+    open: function (from, which) { if (which) tab = which; open(from); },
+    tab: function () { return tab; },
+    show: function (name) { if (els.panels && els.panels[name]) showTab(name); },
+    skins: SKINS,
+    panel: function (name) { return els.panels ? els.panels[name] : null; }
+  };
   window.SlopeUI.ready(build);
 })();

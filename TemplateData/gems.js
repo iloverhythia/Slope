@@ -9,13 +9,13 @@
  *
  * Gems are placed on stretches of track whose floor edges can be measured
  * from what the game draws, at the height of the floor the ball is rolling
- * on. Roll through one to collect it; it simply disappears. Collected gems
- * are saved to the profile and spent in the skin shop (skins.js). They
- * have no effect on the game itself.
+ * on. Roll through one to collect it; it simply disappears. Each one is
+ * worth the gem multiplier (upgrades.js); gems are saved to the profile and
+ * spent in the shop. They have no effect on the game itself.
  *
  *   SlopeGems.list()         gems still on the track (slope coordinates)
  *   SlopeGems.iconSvg(w, h)  the dot-matrix gem icon, as SVG markup
- *   SlopeGems.currentRun()   { gems, seconds } for the run in progress
+ *   SlopeGems.currentRun()   { gems (earned, with the multiplier), pickups, seconds } for the run in progress
  *   SlopeGems.floor()        height of the floor the ball rolls on (slope h), or null
  */
 (function () {
@@ -46,7 +46,7 @@
   var lastBall = null;
   var grounded = 0;            // frames the ball has been on the floor
   var lastTime = 0;
-  var run = { gems: 0, start: 0 };
+  var run = { gems: 0, pickups: 0, start: 0 };
 
   // --- Placement -------------------------------------------------------------
 
@@ -108,7 +108,7 @@
   game.on("runstart", function () {
     reset();
     running = true;
-    run = { gems: 0, start: performance.now() };
+    run = { gems: 0, pickups: 0, start: performance.now() };
   });
 
   game.on("runend", function () {
@@ -156,10 +156,12 @@
     lastBall = { s: ball.s, h: ball.h, x: ball.x };
   });
 
+  // Each pickup is worth the gem multiplier from the upgrade tree (upgrades.js).
   function collect(g) {
     g.taken = true;
-    run.gems += 1;
-    if (window.SlopeProfile) window.SlopeProfile.addGems(1);
+    run.pickups += 1;
+    var worth = window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1;
+    if (window.SlopeProfile) run.gems += window.SlopeProfile.addGems(worth);
   }
 
   // --- Drawing in the game's scene ----------------------------------------------
@@ -273,7 +275,7 @@
       gl.uniform3f(res.u.uDownhill, DOWNHILL[0] * c - SIDE[0] * s, DOWNHILL[1] * c - SIDE[1] * s, DOWNHILL[2] * c - SIDE[2] * s);
       gl.drawArrays(gl.TRIANGLES, 0, 24);
     });
-  });
+  }, function () { return running && gems.length > 0 && !failed; });
 
   // --- HUD counter -----------------------------------------------------------
 
@@ -320,7 +322,7 @@
     },
     floor: function () { return floorH; },
     currentRun: function () {
-      return { gems: run.gems, seconds: run.start ? (performance.now() - run.start) / 1000 : 0 };
+      return { gems: run.gems, pickups: run.pickups, seconds: run.start ? (performance.now() - run.start) / 1000 : 0 };
     }
   };
 })();

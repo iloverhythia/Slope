@@ -26,6 +26,7 @@
     { name: "White", color: "#ffffff" }
   ];
   var GRAPHICS = [
+    { level: "auto", name: "Auto" },
     { level: "low", name: "Low" },
     { level: "high", name: "High" },
     { level: "ultra", name: "Ultra" }
@@ -65,7 +66,7 @@
   var lastFrameTime = 0;
 
   function loadState() {
-    var result = { color: CLASSIC, rainbow: false, graphics: graphics ? graphics.getLevel() : "ultra" };
+    var result = { color: CLASSIC, rainbow: false, graphics: graphics ? graphics.getLevel() : "auto" };
     try {
       var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       if (saved && /^#[0-9a-f]{6}$/i.test(saved.color)) {
@@ -78,7 +79,7 @@
 
   function saveState() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.assign({ v: graphics ? graphics.version : 2 }, state)));
     } catch (e) {}
   }
 
@@ -259,7 +260,7 @@
               return '<button type="button" class="slope-btn" data-graphics="' + g.level + '" aria-pressed="false">' + g.name + "</button>";
             }).join("") +
           "</div>" +
-          '<p class="slope-hint">Use Low if the game stutters.</p>' +
+          '<p class="slope-hint">Auto lowers the resolution if the game stutters.</p>' +
         "</div>" +
         '<button type="button" class="slope-btn slope-reset">Reset color</button>' +
       "</div>";

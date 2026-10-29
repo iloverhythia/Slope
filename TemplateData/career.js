@@ -196,11 +196,14 @@
     window.SlopeUI.closeSettings();
     els.toast.hidden = true;
     els.screen.hidden = false;
+    // The game pauses behind this screen, which covers it.
+    if (game.pause) game.pause("career");
     els.back.focus();
   }
 
   function close() {
     els.screen.hidden = true;
+    if (game.resume) game.resume("career");
     if (openedFrom) openedFrom.focus();
     else if (els.screen.contains(document.activeElement)) document.activeElement.blur();
     openedFrom = null;

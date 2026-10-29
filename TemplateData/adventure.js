@@ -40,8 +40,13 @@
   var FIRST_OBSTACLE = 45;       // distance from the start
   var PROBE_REACH = 8;           // look for floor this far to each side
   var PROBE_STEP = 0.5;
-  var MIN_FLOOR = 1.8;           // narrowest floor an obstacle goes on
-  var NARROW_FLOOR = 3.4;        // below this, only obstacles you can always get past
+  var MIN_FLOOR = 1.8;           // narrowest floor looked at
+  var LANE = 2.4;                // every obstacle leaves a lane this wide open (the ball is 1)
+  // Lanes in a row must be reachable at the ball's speed: from one lane to the
+  // next the ball needs at most half the game's steering speed (about 15
+  // units a second sideways), even if it goes faster than measured.
+  var STEER = 6;                 // sideways units a second a lane change may need
+  var LANE_SLACK = LANE - 2 * BALL_RADIUS - 0.2;  // shift that needs no steering
   var RED = [1.0, 0.08, 0.06];
   var WHITE = [1.0, 1.0, 1.0];
   var LEVEL_STEP = 18;           // levels added to the grid at a time
@@ -127,76 +132,110 @@
   }
 
   // track: { cx, hw, h } — the floor's centre, half width and height at s.
-  function buildObstacle(item, s, track, spec) {
+  // reach: optional [lo, hi], where the lane's centre can be reached from the
+  // obstacle before.
+  //
+  // Every obstacle is fair: the player can only steer, so each one first picks
+  // a lane at least LANE wide that stays open the whole time, and only puts
+  // its parts outside it. (A laser across the whole track, for example, could
+  // only be passed by luck: the ball can't slow down or jump.)
+  function buildObstacle(item, s, track, spec, reach) {
     if (item.kind === "finish") return finishLine(s, track);
-    // On a narrow beam a block, wall, slider or spinner could leave no way
-    // past; lasers switch off and pillars sink, so those still fit.
-    if (track.hw * 2 < NARROW_FLOOR && item.kind !== "laser" && item.kind !== "pillar") return [];
-    var narrow = track.hw * 2 < NARROW_FLOOR;
     var cx = track.cx, hw = track.hw;
+    var x0 = cx - hw, x1 = cx + hw;
+    if (x1 - x0 < LANE + 1.2) return []; // a narrow beam: nothing fits beside the lane
     var w = 2 * Math.PI;
     var t = spec.tempo;
     var parts = [];
-    function across(v, margin) { return cx + (v * 2 - 1) * Math.max(0, hw - margin); }
+    // The open lane, and the floor on each side of it.
+    var lo = x0 + LANE / 2, hi = x1 - LANE / 2;
+    if (reach) {
+      // No lane within reach (the track itself moves over there): left out.
+      if (reach[0] > hi || reach[1] < lo) return [];
+      lo = Math.max(lo, reach[0]);
+      hi = Math.min(hi, reach[1]);
+    }
+    var lane = lo + item.a * (hi - lo);
+    var sides = [{ a: x0, b: lane - LANE / 2 }, { a: lane + LANE / 2, b: x1 }]
+      .filter(function (r) { return r.b - r.a > 0.05; });
+    var wide = sides.slice().sort(function (p, q) { return (q.b - q.a) - (p.b - p.a); })[0];
+    function within(r, half, v) { return r.a + half + v * Math.max(0, r.b - r.a - 2 * half); }
     switch (item.kind) {
       case "block":
-        parts.push(box(s, across(item.a, 0.7), 0.55, 0.55, 0.55));
-        if (spec.pairs && item.c < 0.5) {
-          var x2 = across(item.b, 0.7);
-          if (Math.abs(x2 - parts[0].x) < 2.4) x2 = parts[0].x + (parts[0].x > cx ? -2.4 : 2.4);
-          parts.push(box(s + 1.5, x2, 0.55, 0.55, 0.55));
-        }
+        // One block (two from level 8) beside the lane.
+        sides.forEach(function (r, i) {
+          if (r.b - r.a < 1.1) return;
+          if (r === wide || (spec.pairs && item.c < 0.5)) parts.push(box(s, within(r, 0.55, i ? item.b : item.c), 0.55, 0.55, 0.55));
+        });
         break;
       case "wall":
-        var gap = 2.4, gx = across(item.a, 1.6);
-        var left = gx - gap / 2 - (cx - hw), right = cx + hw - (gx + gap / 2);
-        if (left > 0.2) parts.push(box(s, cx - hw + left / 2, left / 2, 0.35, 0.5));
-        if (right > 0.2) parts.push(box(s, gx + gap / 2 + right / 2, right / 2, 0.35, 0.5));
+        // The lane is the gap in the wall.
+        sides.forEach(function (r) { parts.push(box(s, (r.a + r.b) / 2, (r.b - r.a) / 2, 0.35, 0.5)); });
         break;
       case "slider":
-        var reach = Math.max(0.5, hw - 0.9), period = 2.6 / t, phase = item.a * w;
-        parts.push(box(s, cx, 0.8, 0.6, 0.6, { move: function (p, now) { p.x = cx + reach * Math.sin(now * w / period + phase); } }));
-        if (spec.pairs && item.c < 0.4) {
-          parts.push(box(s + 5, cx, 0.8, 0.6, 0.6, { move: function (p, now) { p.x = cx - reach * Math.sin(now * w / period + phase); } }));
-        }
+        // Slides to and fro on its side of the lane, never into it.
+        if (wide.b - wide.a < 1.8) break;
+        var reach = (wide.b - wide.a - 1.6) / 2, mid = (wide.a + wide.b) / 2, period = 2.6 / t, phase = item.b * w;
+        parts.push(box(s, mid, 0.8, 0.6, 0.6, { move: function (p, now) { p.x = mid + reach * Math.sin(now * w / period + phase); } }));
         break;
       case "laser":
-        var cycle = 2.2 / t, offset = item.a * cycle;
-        parts.push(box(s, cx, hw - 0.3, 0.1, 0.1, {
-          lift: 0.45,
-          move: function (p, now) {
-            var on = ((now + offset) % cycle) / cycle < 0.5;
-            p.solid = on;
-            p.glow = on ? 1 : 0;
-            p.dim = !on;
-          }
-        }));
-        parts.push(box(s, cx - hw + 0.15, 0.15, 0.15, 0.7, { solid: false }));
-        parts.push(box(s, cx + hw - 0.15, 0.15, 0.15, 0.7, { solid: false }));
+        // Beams on both sides of the lane switch on and off; the gap between
+        // the two posts is always open.
+        var cycle = 2.2 / t, offset = item.b * cycle;
+        sides.forEach(function (r) {
+          parts.push(box(s, (r.a + r.b) / 2, (r.b - r.a) / 2, 0.1, 0.1, {
+            lift: 0.45,
+            move: function (p, now) {
+              var on = ((now + offset) % cycle) / cycle < 0.5;
+              p.solid = on;
+              p.glow = on ? 1 : 0;
+              p.dim = !on;
+            }
+          }));
+          var post = r.b <= lane ? r.b - 0.15 : r.a + 0.15;
+          parts.push(box(s, post, 0.15, 0.15, 0.7, { solid: false }));
+        });
         break;
       case "pillar":
-        var count = spec.pairs && item.c < 0.5 && !narrow ? 2 : 1;
-        for (var i = 0; i < count; i++) {
+        // Pillars rise and sink beside the lane.
+        sides.forEach(function (r, i) {
+          if (r.b - r.a < 1.4) return;
+          if (r !== wide && !(spec.pairs && item.c < 0.5)) return;
           (function (px, phase) {
             var span = 2.6 / t;
-            parts.push(box(s, px, Math.min(0.7, hw), 0.7, 1.1, {
+            parts.push(box(s, px, 0.7, 0.7, 1.1, {
               move: function (p, now) {
                 // Up half the time, down (under the floor) the other half.
                 var k = Math.max(0, Math.min(1, 0.5 + 1.4 * Math.sin(now * w / span + phase)));
                 p.lift = (k - 1) * 2.3;
               }
             }));
-          })(narrow ? cx : across(i ? item.b : item.a, 0.8), item.c * w + i * Math.PI);
-        }
+          })(within(r, 0.7, i ? item.b : item.c), item.c * w + i * Math.PI);
+        });
         break;
       case "spinner":
-        var speed = (item.a < 0.5 ? 1 : -1) * w / (3.4 / t), start = item.b * w;
-        parts.push(box(s, cx, hw * 0.85, 0.22, 0.45, { move: function (p, now) { p.turn = start + now * speed; } }));
-        parts.push(box(s, cx, 0.3, 0.3, 0.6, { solid: true })); // the hub
+        // Turns on its side of the lane; its sweep never reaches the lane.
+        var r = (wide.b - wide.a) / 2;
+        if (r < 1.0) break;
+        var hub = (wide.a + wide.b) / 2;
+        var speed = (item.b < 0.5 ? 1 : -1) * w / (3.4 / t), start = item.c * w;
+        parts.push(box(s, hub, r - 0.1, 0.22, 0.45, { move: function (p, now) { p.turn = start + now * speed; } }));
+        parts.push(box(s, hub, 0.3, 0.3, 0.6, { solid: true })); // the hub
         break;
     }
     parts.forEach(function (p) { p.kind = item.kind; p.base = track.h; });
+    parts.lane = lane;
     return parts;
+  }
+
+  // Where the next lane may be: within reach of the last one at the speed the
+  // ball may have by then (it speeds up quickly, so allow for more).
+  function laneReach(last, s, kind, speed) {
+    if (!last) return null;
+    var room = s - last.s - 2 * BALL_RADIUS - last.depth - (kind === "spinner" ? 3.5 : 0.7);
+    var fast = Math.max(12, speed * 1.2 + 12);
+    var shift = LANE_SLACK + STEER * Math.max(0, room) / fast;
+    return [last.x - shift, last.x + shift];
   }
 
   function finishLine(s, track) {
@@ -211,20 +250,34 @@
     return parts;
   }
 
-  // The floor under one row of probe points: the highest flat surface near
-  // the ball's floor height, with room above it (under a red side ramp there
-  // isn't; under a tunnel roof there is). Neighbouring points at the same
-  // height make one floor. Returns the floor that is the likeliest track (at
-  // least MIN_FLOOR wide, nearest the ball's height, then nearest x), or null.
-  function floorRow(xs, hits, x, ref) {
-    var heights = hits.map(function (list) {
-      var top = null;
-      list.forEach(function (hit) {
-        if (hit.flat && hit.h > ref - 8 && hit.h < ref + 1 && (top === null || hit.h > top)) top = hit.h;
-      });
-      if (top === null) return null;
-      var covered = list.some(function (hit) { return hit.h > top + 0.05 && hit.h < top + 2; });
-      return covered ? null : top;
+  // Open floor at one probe point: the highest flat surface near the ball's
+  // floor height, with room above it (under a red side ramp there isn't;
+  // under a tunnel roof there is). Its height, or null.
+  function openFloor(list, ref) {
+    var top = null;
+    list.forEach(function (hit) {
+      if (hit.flat && hit.h > ref - 8 && hit.h < ref + 1 && (top === null || hit.h > top)) top = hit.h;
+    });
+    if (top === null) return null;
+    var covered = list.some(function (hit) { return hit.h > top + 0.05 && hit.h < top + 2; });
+    return covered ? null : top;
+  }
+
+  // The floor across a few rows of probe points just before, at and just
+  // after an obstacle: open in every row and at one height (so one of the
+  // game's own blocks next to it doesn't count as free). Neighbouring points
+  // at the same height make one floor. Returns the floor that is the likeliest
+  // track (at least MIN_FLOOR wide, nearest the ball's height, then nearest
+  // x), or null.
+  function floorRow(xs, rows, x, ref) {
+    var per = rows.map(function (hits) { return hits.map(function (list) { return openFloor(list, ref); }); });
+    var middle = per[per.length >> 1];
+    var heights = middle.map(function (h, i) {
+      if (h === null) return null;
+      for (var r = 0; r < per.length; r++) {
+        if (per[r][i] === null || Math.abs(per[r][i] - h) > 0.3) return null;
+      }
+      return h;
     });
     var runs = [], cur = null;
     heights.forEach(function (h, i) {
@@ -248,17 +301,20 @@
 
   // Ask where the floor is at an upcoming obstacle; the answer comes with the
   // next frame the game draws.
+  var PROBE_ROWS = [-1.5, 0, 1.5];
+
   function probe(item, s, x, ref) {
     var xs = [], points = [];
-    for (var dx = -PROBE_REACH; dx <= PROBE_REACH + 1e-6; dx += PROBE_STEP) {
-      xs.push(x + dx);
-      points.push({ s: s, x: x + dx });
-    }
+    for (var dx = -PROBE_REACH; dx <= PROBE_REACH + 1e-6; dx += PROBE_STEP) xs.push(x + dx);
+    PROBE_ROWS.forEach(function (ds) {
+      xs.forEach(function (px) { points.push({ s: s + ds, x: px }); });
+    });
     item.state = "probing";
     var forRun = run;
     game.probeFloor(points, function (hits) {
       if (run !== forRun || item.state !== "probing") return;
-      var floor = hits ? floorRow(xs, hits, x, ref) : null;
+      var rows = hits ? PROBE_ROWS.map(function (ds, r) { return hits.slice(r * xs.length, (r + 1) * xs.length); }) : null;
+      var floor = rows ? floorRow(xs, rows, x, ref) : null;
       item.floor = floor;
       item.state = floor ? "found" : "waiting";
     });
@@ -292,7 +348,7 @@
   function begin(n) {
     var spec = levelSpec(n);
     run = { spec: spec, plan: planLevel(spec), next: 0, parts: [], startS: null, goalS: null,
-      hit: null, progress: 0, last: null };
+      hit: null, progress: 0, last: null, lane: null, speed: 0 };
     mode = "playing";
     showHud();
     showIntro(spec);
@@ -307,6 +363,14 @@
       run.startS = ball.s;
       run.goalS = ball.s + run.spec.length;
     }
+    // The ball's speed down the slope, smoothed (game clock).
+    var clock = game.gameTime();
+    if (run.clock !== undefined && clock > run.clock) {
+      var v = (ball.s - run.lastS) / (clock - run.clock);
+      if (v >= 0 && v < 300) run.speed = run.speed ? run.speed * 0.8 + v * 0.2 : v;
+    }
+    run.clock = clock;
+    run.lastS = ball.s;
     // The floor height the ball rolls on tells the track ahead from tunnel
     // roofs and the city far below. The ball starts on a ramp above the
     // track, so wait until it rolls on the floor.
@@ -314,6 +378,9 @@
 
     // Put obstacles on the track once the floor under them exists, looking for
     // it straight ahead of the ball.
+    // Probes run side by side, but obstacles are placed in order, as each
+    // lane is picked from the one before.
+    var waiting = [], blocked = false;
     for (var n = run.next; ref !== null && n < run.plan.length; n++) {
       var item = run.plan[n];
       var s = run.startS + item.at;
@@ -323,12 +390,21 @@
       }
       if (s > ball.s + PLACE_AHEAD) break;
       if (s < ball.s + GIVE_UP_AHEAD) { item.state = "skipped"; continue; } // no floor there in time (a gap)
-      if (item.state === "found") {
-        run.parts = run.parts.concat(buildObstacle(item, s, item.floor, run.spec));
+      if (item.state === "found" && !blocked) {
+        var built = buildObstacle(item, s, item.floor, run.spec,
+          laneReach(run.lane || { s: ball.s, x: ball.x, depth: 0 }, s, item.kind, run.speed));
+        if (built.lane !== undefined) run.lane = { s: s, x: built.lane, depth: item.kind === "spinner" ? 3.5 : 0.7 };
+        run.parts = run.parts.concat(built);
         item.state = "placed";
-      } else if (item.state !== "probing") {
-        probe(item, s, ball.x, ref);
+        // The track is built in order, so ones before with no floor are over a gap.
+        waiting.forEach(function (w) { w.state = "skipped"; });
+        waiting = [];
+        continue;
       }
+      if (item.state === "waiting") item.empty = true;   // looked, and no floor yet
+      if (item.state !== "probing" && item.state !== "found") probe(item, s, ball.x, ref);
+      if (item.empty) waiting.push(item);
+      else blocked = true;   // its first answer is still to come
     }
     var t = now();
     run.parts.forEach(function (p) { if (p.move) p.move(p, t); });
@@ -573,7 +649,7 @@
       gl.uniform1f(gfx.u.uEdge, p.dim ? 0.3 : 1);
       gl.drawArrays(gl.TRIANGLES, 0, 36);
     });
-  });
+  }, function () { return !!run && run.parts.length > 0 && !gfxFailed; });
 
   // --- Screens ------------------------------------------------------------------------
 

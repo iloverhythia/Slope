@@ -1,5 +1,6 @@
 /*
- * Player profile: XP, level, gems, ball skins, Adventure progress and run stats.
+ * Player profile: XP, level, gems, gem upgrades, ball skins, Adventure
+ * progress and run stats.
  *
  * XP comes from score: every run earns score x 10 XP. Reaching level L takes
  * 50 * L * (L - 1) XP in total, so each level needs 100 XP more than the last.
@@ -11,7 +12,9 @@
  *
  *   SlopeProfile.get()             current profile with level info
  *   SlopeProfile.recordRun(run)    { score, gems, seconds } -> { xp, levelBefore, levelAfter }
- *   SlopeProfile.addGems(n)
+ *   SlopeProfile.addGems(n)            n can be fractional (gem multiplier): the
+ *                                      fraction is kept; returns whole gems added
+ *   SlopeProfile.buyUpgrade(id, price) spends gems on a gem upgrade; true if bought
  *   SlopeProfile.buySkin(id, price)   spends gems; true if bought (and equips it)
  *   SlopeProfile.equipSkin(id)
  *   SlopeProfile.completeLevel(n)     Adventure level n beaten: unlocks n + 1
@@ -41,7 +44,8 @@
   };
 
   function blank() {
-    return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0 };
+    return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0,
+      upgrades: [], gemBank: 0 };
   }
 
   function clean(d) {
@@ -51,14 +55,21 @@
       if (k === "recent") b.recent = Array.isArray(d.recent) ? d.recent.slice(-RECENT_RUNS) : [];
       else if (k === "skins") b.skins = Array.isArray(d.skins) ? d.skins.filter(isSkinId) : [];
       else if (k === "skin") b.skin = isSkinId(d.skin) ? d.skin : "classic";
+      else if (k === "upgrades") b.upgrades = Array.isArray(d.upgrades) ? d.upgrades.filter(isUpgradeId) : [];
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
     });
     b.advUnlocked = Math.max(1, Math.floor(b.advUnlocked));
+    b.gems = Math.floor(b.gems);
+    b.gemBank = b.gemBank < 1 ? b.gemBank : 0;
     return b;
   }
 
   function isSkinId(id) {
     return typeof id === "string" && /^[a-z0-9-]{1,32}$/.test(id);
+  }
+
+  function isUpgradeId(id) {
+    return typeof id === "string" && /^[1-9][0-9]{0,5}[LRC]$/.test(id);
   }
 
   function readLocal() {
@@ -80,6 +91,7 @@
     return Object.assign({}, data, {
       recent: data.recent.slice(),
       skins: data.skins.slice(),
+      upgrades: data.upgrades.slice(),
       level: info.level,
       levelXp: info.into,
       levelNeed: info.need,
@@ -132,9 +144,24 @@
   }
 
   function addGems(n) {
-    data.gems += n;
+    if (!(n > 0)) return 0;
+    var total = data.gemBank + n;
+    var whole = Math.floor(total + 1e-9);
+    data.gemBank = Math.max(0, total - whole);
+    data.gems += whole;
     if (!remote) writeLocal(data); // account copy is written with the run
     changed();
+    return whole;
+  }
+
+  function buyUpgrade(id, price) {
+    price = Math.floor(price);
+    if (!isUpgradeId(id) || !(price >= 0) || data.upgrades.indexOf(id) !== -1 || data.gems < price) return false;
+    data.gems -= price;
+    data.upgrades.push(id);
+    save();
+    changed();
+    return true;
   }
 
   function buySkin(id, price) {
@@ -176,6 +203,8 @@
       skins: a.skins.concat(b.skins.filter(function (id) { return a.skins.indexOf(id) === -1; })),
       skin: a.skin !== "classic" ? a.skin : b.skin,
       advUnlocked: Math.max(a.advUnlocked, b.advUnlocked),
+      upgrades: a.upgrades.concat(b.upgrades.filter(function (id) { return a.upgrades.indexOf(id) === -1; })),
+      gemBank: (a.gemBank + b.gemBank) % 1,
       advWins: a.advWins + b.advWins,
       recent: a.recent.concat(b.recent).sort(function (x, y) { return (x.at || 0) - (y.at || 0); })
     });
@@ -193,7 +222,7 @@
         return ref.get().then(function (snap) {
           var saved = snap.exists ? clean(snap.data()) : blank();
           var guest = readLocal();
-          var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0 || guest.advUnlocked > 1;
+          var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0 || guest.advUnlocked > 1 || guest.upgrades.length > 0;
           data = hasGuest ? merge(saved, guest) : saved;
           remote = { ref: ref };
           account.signedIn = true;
@@ -248,6 +277,7 @@
     recordRun: recordRun,
     addGems: addGems,
     buySkin: buySkin,
+    buyUpgrade: buyUpgrade,
     equipSkin: equipSkin,
     completeLevel: completeLevel,
     signIn: signIn,

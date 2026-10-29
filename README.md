@@ -6,12 +6,13 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 
 ### Added in this version
 
-- **Settings** (gear, top left): track color presets, a custom color, rainbow mode, and Low / High / Ultra graphics.
+- **Settings** (gear, top left): track color presets, a custom color, rainbow mode, and Auto / Low / High / Ultra graphics. Auto (the default) lowers the resolution when frames are dropped and raises it again when there is time to spare.
 - **Sharper graphics**: the game is drawn at full screen resolution or higher, with antialiasing, without changing its menus (`TemplateData/quality.js`).
 - **Instant steering**: the ball moves sideways the moment a key is pressed and stops when it is released.
 - **Gems** on the track, drawn as part of the game's 3D scene. Roll through them to collect them.
-- **Skin shop** (Shop button in the main menu, the gem counter, or the Career screen): 20 ball skins to buy with gems. Each skin has its own color for the ball's speed-up trail, which still only appears on speed up.
-- **Adventure** button in the main menu: an endless grid of levels. Reach a level's finish line to unlock the next one. Every level has its own obstacles to avoid (blocks, walls with a gap, sliders, lasers, rising pillars, spinners); levels 1 to 6 bring in one new obstacle each, later levels mix them and get denser and faster. Obstacles are put on the track's real floor (read from the track's geometry) only once that part of the track exists.
+- **Skin shop** (Shop button in the main menu, the gem counter, or the Career screen): 31 ball skins to buy with gems. Each skin has its own color for the ball's speed-up trail, which still only appears on speed up. The previews are drawn once and only the skin under the pointer (or the one you wear) spins, and the game pauses behind the shop, so the page stays smooth.
+- **Gem upgrades** (the shop's Upgrades tab): an endless upgrade tree that only raises the gem multiplier. Each gem you pick up is worth the multiplier (fractions add up). Every tier has two side upgrades and a centre one that opens the next tier; every 10th tier boosts more, and prices grow 20% a tier.
+- **Adventure** button in the main menu: an endless grid of levels. Reach a level's finish line to unlock the next one. Every level has its own obstacles to avoid (blocks, walls with a gap, sliders, lasers, rising pillars, spinners); levels 1 to 6 bring in one new obstacle each, later levels mix them and get denser and faster. Obstacles are put on the track's real floor (read from the track's geometry) only once that part of the track exists. Every obstacle leaves an open lane, and each lane is placed within steering reach of the one before at the ball's current speed, so every level can be beaten.
 - **Career** button in the main menu: profile, level and stats. Every run earns score x 10 XP.
 - In the Claude artifact version you can log in with Claude so your Career follows your account.
 
@@ -19,7 +20,7 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 
 The game is a compiled Unity build, so new behavior is added two ways:
 
-- Page scripts in `TemplateData/` read what the game draws and draw into it (`game-bridge.js`, `gems.js`, `skins.js`, `adventure.js`, `profile.js`, `career.js`, `settings.js`). They can also send events to the game's EventManager state machine (start a run, crash the ball, go back to the menu).
+- Page scripts in `TemplateData/` read what the game draws and draw into it (`game-bridge.js`, `gems.js`, `skins.js`, `upgrades.js`, `adventure.js`, `profile.js`, `career.js`, `settings.js`). They can also send events to the game's EventManager state machine (start a run, crash the ball, go back to the menu).
 - Small edits to the game's PlayMaker state machines in `Build/slope_data.unityweb`, made with the scripts in `tools/`:
   - steering sets the ball's sideways speed instead of pushing it with a force
   - the main menu gets Adventure, Shop and Career buttons, in a slightly smaller button style (added to the game's GUI skin) so seven buttons fit
