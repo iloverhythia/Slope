@@ -34,6 +34,7 @@
 /* Tabs: like the settings options, the open tab is filled in. */
 .slope-tabs {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
 }
@@ -136,6 +137,50 @@
   aspect-ratio: 16 / 10;
   box-shadow: 0 0 0 1px var(--slope-dim);
 }
+
+/* Slope styles: a stretch of track, or towers and a red block, in CSS 3D.
+   The tiles are the ones the game gets; the track colour tint is the same
+   SVG filter the game uses (settings.js). */
+.slope-shop-section {
+  margin: 6px 0 0;
+  font-family: var(--slope-display);
+  font-size: 22px;
+  font-weight: normal;
+  text-align: center;
+}
+
+.slope-tile-preview {
+  position: relative;
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 0 1px var(--slope-dim);
+  perspective: 150px;
+  perspective-origin: 50% 22%;
+  filter: url(#slope-tint);
+}
+
+.slope-tile-preview > div {
+  position: absolute;
+  background-repeat: repeat;
+  background-size: 22px 22px;
+}
+
+.slope-tile-floor { left: 30%; width: 40%; bottom: 0; height: 500%; transform-origin: 50% 100%; transform: rotateX(90deg); }
+.slope-tile-left { left: 30%; width: 500%; top: 18%; bottom: 0; transform-origin: 0 50%; transform: rotateY(90deg); }
+.slope-tile-right { right: 30%; width: 500%; top: 18%; bottom: 0; transform-origin: 100% 50%; transform: rotateY(-90deg); }
+
+.slope-tile-ground { left: -50%; width: 200%; bottom: 0; height: 500%; transform-origin: 50% 100%; transform: rotateX(90deg); opacity: 0.5; }
+.slope-tile-tower { bottom: 0; width: 20%; height: 86%; }
+.slope-tile-tower-side { bottom: 0; width: 40%; height: 86%; }
+.slope-tile-tower-a { left: 6%; }
+.slope-tile-tower-a-side { left: 26%; transform-origin: 0 50%; transform: rotateY(90deg); }
+.slope-tile-tower-b { right: 6%; }
+.slope-tile-tower-b-side { right: 26%; transform-origin: 100% 50%; transform: rotateY(-90deg); }
+.slope-tile-block { left: 40%; width: 20%; bottom: 0; height: 22%; }
+.slope-tile-block-top { left: 40%; width: 20%; bottom: 22%; height: 30%; transform-origin: 50% 100%; transform: rotateX(90deg); }
 
 /* Not enough gems yet: dimmed, and no red hover. */
 .slope-shop .slope-btn:disabled,
@@ -355,11 +400,11 @@
   }
 }
 
-/* Three tabs share a narrow screen. */
-@media (max-width: 520px) {
+/* Four tabs share a narrow screen: two rows of two. */
+@media (max-width: 620px) {
   .slope-tab {
     min-width: 0;
-    flex: 1;
+    flex: 1 1 40%;
     padding: 0 6px;
     font-size: 16px;
   }

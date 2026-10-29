@@ -1,6 +1,6 @@
 /*
- * Ball skins and the shop (skins here; backgrounds.js and upgrades.js fill
- * its other tabs).
+ * Ball skins and the shop (skins here; backgrounds.js, slopes.js and
+ * upgrades.js fill its other tabs).
  *
  * Skins are bought with the gems collected on the track. The equipped skin
  * is drawn in place of the game's own ball (SlopeGame.paintBall), on the
@@ -16,6 +16,8 @@
  *
  *   SlopeShop.open(returnFocusTo)
  *   SlopeShop.skins            the skin list
+ *   SlopeSkins.secret(level)   the merge game's secret skin for a ball level
+ *   SlopeSkins.image(skin)     a still picture of a skin (data URL)
  */
 (function () {
   "use strict";
@@ -136,8 +138,52 @@
   });
 
   function skinById(id) {
+    var secret = /^secret-([1-9][0-9]{0,5})$/.exec(id || "");
+    if (secret) return secretSkin(+secret[1]);
     for (var i = 0; i < SKINS.length; i++) if (SKINS[i].id === id) return SKINS[i];
     return SKINS[0];
+  }
+
+  // --- Secret skins ------------------------------------------------------------
+  // Each ball level of the merge game (merge.js) is a skin of its own, without
+  // end: a shape and two colours picked from the level, and from level 10 a
+  // glowing rim, from 20 sparkles, with more shine every level.
+
+  var SECRET_NAMES = ["Pebble", "Spark", "Ember", "Comet", "Pulse", "Nova", "Orbit", "Flare", "Quartz", "Prism",
+    "Vortex", "Nebula", "Pulsar", "Quasar", "Zenith", "Aurora", "Eclipse", "Halo", "Titan", "Infinity"];
+  var ROMAN = ["", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
+  var secretCache = {};
+
+  function hsv(h, s, v) {
+    var c = [5, 3, 1].map(function (n) { var k = (n + h * 6) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); });
+    return c;
+  }
+
+  function secretSkin(level) {
+    if (secretCache[level]) return secretCache[level];
+    var seed = level * 977 + 13;
+    function random() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    var round = Math.floor((level - 1) / SECRET_NAMES.length);
+    var name = SECRET_NAMES[(level - 1) % SECRET_NAMES.length] + (round < ROMAN.length ? ROMAN[round] : " " + (round + 1));
+    var hueA = (0.13 + level * 0.618034) % 1, hueB = (hueA + 0.25 + random() * 0.5) % 1;
+    var a = hsv(hueA, 0.85, 1), b = hsv(hueB, 0.7, level % 3 === 0 ? 0.15 : 0.95);
+    var skin = {
+      id: "secret-" + level,
+      name: name,
+      level: level,
+      pattern: 49,
+      count: 0,
+      flat: new Float32Array(MAX_POINTS * 3),
+      trail: a,
+      secret: {
+        a: a,
+        b: b,
+        p: [level <= 6 ? level - 1 : Math.floor(random() * 6), 3 + Math.floor(random() * 6), Math.min(1, level / 25), level >= 10 ? Math.min(1, (level - 9) / 20) : 0],
+        q: [level >= 20 ? 1 : 0, 0.3 + random() * 0.9, 0, 0]
+      }
+    };
+    secretCache[level] = skin;
+    return skin;
   }
 
   // --- Shader ----------------------------------------------------------------
@@ -174,6 +220,8 @@
     "uniform int uSplit;",
     "uniform vec3 uTint;",
     "uniform int uBakeTint;",
+    "uniform vec3 uSecretA, uSecretB;",
+    "uniform vec4 uSecretP, uSecretQ;",
     "out vec4 outColor;",
     "",
     "const float PI = 3.14159265;",
@@ -514,6 +562,24 @@
     "    float flick = 0.85 + 0.15 * sin(uTime * 23.0) * sin(uTime * 7.0);",
     "    col = vec3(0.2, 0.9, 1.0) * (0.15 + 0.85 * pow(1.0 - facing, 2.0)) * scan * flick;",
     "    col += vec3(0.6, 1.0, 1.0) * line(meridians(p), 0.015) * 0.5;",
+    "  } else if (uPattern == 49) {", // Secret skins from the merge game: one shape, two colours, more shine each level
+    "    int kind = int(uSecretP.x + 0.5);",
+    "    float f = uSecretP.y, t = uTime * uSecretQ.y, m;",
+    "    if (kind == 0) m = fill(sin(lat * f * 2.0 + t));",
+    "    else if (kind == 1) m = fill(sin(lon * f + t) * sin(lat * f));",
+    "    else if (kind == 2) m = fill(sin(lon * 2.0 + lat * f * 1.5 + t));",
+    "    else if (kind == 3) m = fill(sin(acos(clamp(p.z, -1.0, 1.0)) * f * 2.0 - t * 2.0));",
+    "    else if (kind == 4) m = smoothstep(0.42, 0.58, fbm(p * f * 0.6 + vec3(t * 0.2)));",
+    "    else m = fill(sin(p.x * f + sin(p.y * f * 0.7 + t) * 2.0));",
+    "    vec3 c = mix(uSecretB, uSecretA, m);",
+    "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 20.0 + 80.0 * uSecretP.z);",
+    "    col = c * shade + vec3(spec) * (0.15 + 0.85 * uSecretP.z);",
+    "    col += uSecretA * uSecretP.w * (0.6 + 0.4 * sin(uTime * 3.0)) * pow(1.0 - facing, 2.0);",
+    "    if (uSecretQ.x > 0.5) {",
+    "      vec3 q = p * 22.0;",
+    "      float h = hash3(floor(q));",
+    "      col += vec3(step(0.93, h) * (1.0 - smoothstep(0.0, 0.3, length(fract(q) - 0.5)))) * (0.5 + 0.5 * sin(uTime * 4.0 + h * 50.0));",
+    "    }",
     "  }",
     "  // A faint rim keeps the round shape visible where the body is black.",
     "  col += vec3(0.1) * pow(1.0 - facing, 2.5) * step(max(col.r, max(col.g, col.b)), 0.04);",
@@ -537,7 +603,8 @@
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     var u = {};
-    ["uViewProjection", "uObjectToWorld", "uPattern", "uCamera", "uLight", "uTime", "uPoints", "uCount", "uSplit", "uTint", "uBakeTint"].forEach(function (name) {
+    ["uViewProjection", "uObjectToWorld", "uPattern", "uCamera", "uLight", "uTime", "uPoints", "uCount", "uSplit", "uTint", "uBakeTint",
+     "uSecretA", "uSecretB", "uSecretP", "uSecretQ"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     this.gl = gl;
@@ -554,6 +621,12 @@
       if (skin.count) gl.uniform3fv(u.uPoints, skin.flat);
       gl.uniform1i(u.uBakeTint, tint ? 1 : 0);
       if (tint) gl.uniform3fv(u.uTint, tint);
+      if (skin.secret) {
+        gl.uniform3fv(u.uSecretA, skin.secret.a);
+        gl.uniform3fv(u.uSecretB, skin.secret.b);
+        gl.uniform4fv(u.uSecretP, skin.secret.p);
+        gl.uniform4fv(u.uSecretQ, skin.secret.q);
+      }
     };
   }
 
@@ -823,6 +896,7 @@
         '<div class="slope-tabs" role="tablist" aria-label="Shop">' +
           '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-skins" aria-controls="slope-panel-skins" data-tab="skins">Skins</button>' +
           '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-backgrounds" aria-controls="slope-panel-backgrounds" data-tab="backgrounds">Backgrounds</button>' +
+          '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-slope" aria-controls="slope-panel-slope" data-tab="slope">Slope</button>' +
           '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-upgrades" aria-controls="slope-panel-upgrades" data-tab="upgrades">Upgrades</button>' +
         "</div>" +
         '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-skins" aria-labelledby="slope-tab-skins">' +
@@ -840,6 +914,7 @@
           '<p class="slope-shop-status" role="status"></p>' +
         "</div>" +
         '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-backgrounds" aria-labelledby="slope-tab-backgrounds" hidden></div>' +
+        '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-slope" aria-labelledby="slope-tab-slope" hidden></div>' +
         '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-upgrades" aria-labelledby="slope-tab-upgrades" hidden></div>' +
         '<div class="slope-career-actions">' +
           '<button type="button" class="slope-btn slope-back">Back</button>' +
@@ -855,7 +930,7 @@
       back: screen.querySelector(".slope-back"),
       tabs: Array.prototype.slice.call(screen.querySelectorAll(".slope-tab")),
       panels: { skins: screen.querySelector("#slope-panel-skins"), backgrounds: screen.querySelector("#slope-panel-backgrounds"),
-        upgrades: screen.querySelector("#slope-panel-upgrades") },
+        slope: screen.querySelector("#slope-panel-slope"), upgrades: screen.querySelector("#slope-panel-upgrades") },
       cards: SKINS.map(function (s) {
         var li = screen.querySelector('[data-skin="' + s.id + '"]');
         return {
@@ -1029,6 +1104,22 @@
   }
 
   game.on("shop", function () { open(null); });
+
+  // A still picture of a skin (the shop's preview drawing, with the track
+  // colour tint), as a data URL for other screens. Kept per tint.
+  var imageCache = {};
+  function skinImage(skin) {
+    var key = skin.id + "/" + ((window.SlopeUI && window.SlopeUI.themeColor) || "");
+    if (imageCache[key]) return imageCache[key];
+    if (preview === null) preview = setupPreview() || false;
+    if (!preview) return null;
+    var c = document.createElement("canvas");
+    c.width = c.height = preview.size;
+    drawPreview(skin, c, STILL, 0, themeRgb());
+    return (imageCache[key] = c.toDataURL());
+  }
+
+  window.SlopeSkins = { byId: skinById, secret: secretSkin, image: skinImage };
 
   window.SlopeShop = {
     open: function (from, which) { if (which) tab = which; open(from); },

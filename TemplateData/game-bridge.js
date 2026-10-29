@@ -45,6 +45,7 @@
  *   SlopeGame.paintBall(function ({ gl, vp, o2w, draw }) { ... return true; })
  *   SlopeGame.paintTrail(function ({ gl, program, draw }) { ... return true; })
  *   SlopeGame.paintBackground(function ({ gl, vp, width, height }) { ... })   behind the scene, each frame
+ *   SlopeGame.retexture({ frame, edge, floor, tower, wall, block })   other tiles for the world
  *   SlopeGame.probeFloor([{ s, x }, ...], function (hits) { ... })   floor heights from the track geometry
  */
 (function () {
@@ -61,6 +62,7 @@
   var ballPainter = null;
   var trailPainter = null;
   var backgroundPainter = null;
+  var texturePainter = null;   // { kind: canvas } replacement tiles
   function on(name, fn, wants) {
     (handlers[name] = handlers[name] || []).push(fn);
     if (name === "scene") sceneWants.push(wants || function () { return true; });
@@ -328,6 +330,94 @@
     var sceneVp = null;   // the last view-projection the 3D scene was drawn with
     var activeTextureNow = gl.TEXTURE0;
     wrap("activeTexture", function (a) { activeTextureNow = a[0]; });
+    var boundTex = {};   // texture unit -> the 2D texture the game has bound there
+    wrap("bindTexture", function (a) { if (a[0] === gl.TEXTURE_2D) boundTex[activeTextureNow - gl.TEXTURE0] = a[1]; });
+
+    // --- Track textures --------------------------------------------------
+    // The whole world is tiled with a few 32x32 textures: black squares with
+    // a neon edge or a neon middle. Each is recognised by its pixels when the
+    // game uploads it (RGB, or DXT1 blocks: the first colour of a block on
+    // the top edge and one in the middle) and tagged with a kind. A texture
+    // painter can then have them drawn with other tiles: they are swapped
+    // in for the draw only, and only for the 3D scene (the ball and the
+    // menus use one of them too).
+    function tone(rgb) {
+      var r = rgb[0], g = rgb[1];
+      if (g > 120 && g > r * 2) return "green";
+      if (r > 120 && r > g * 2) return r > 200 ? "red" : "darkred";
+      return "black";
+    }
+    function dxtColour(d, block) {
+      var c = d[block * 8] | (d[block * 8 + 1] << 8);
+      return [((c >> 11) & 31) * 8, ((c >> 5) & 63) * 4, (c & 31) * 8];
+    }
+    function tagTexture(kind) {
+      var tex = boundTex[activeTextureNow - gl.TEXTURE0];
+      if (tex && kind) tex.__slopeKind = kind;
+    }
+    wrap("texSubImage2D", function (a) {
+      if (a[1] !== 0 || a[4] !== 32 || a[5] !== 32 || a[6] !== gl.RGB || !a[8] || !a[8].buffer) return;
+      var px = a[8];
+      function at(x, y) { var i = (y * 32 + x) * 3; return [px[i], px[i + 1], px[i + 2]]; }
+      if (tone(at(16, 0)) !== "green" || tone(at(16, 16)) !== "black") return;
+      tagTexture(tone(at(1, 1)) === "green" ? "frame" : "tower");
+    });
+    wrap("compressedTexSubImage2D", function (a) {
+      if (a[1] !== 0 || a[4] !== 32 || a[5] !== 32 || !a[7] || !a[7].buffer || a[7].length < 512) return;
+      var edge = tone(dxtColour(a[7], 4)), middle = tone(dxtColour(a[7], 27));
+      var kind = edge === "green" && middle === "black" ? "edge"
+        : edge === "black" && middle === "green" ? "floor"
+        : edge === "red" && middle === "black" ? "wall"
+        : edge === "darkred" && middle === "black" ? "block" : null;
+      tagTexture(kind);
+    });
+
+    var textureFor = (function () {
+      var made = [];
+      return function (source) {
+        for (var i = 0; i < made.length; i++) if (made[i].source === source) return made[i].tex;
+        var unit = activeTextureNow - gl.TEXTURE0, before = boundTex[unit];
+        var unpack = gl.getParameter(gl.PIXEL_UNPACK_BUFFER_BINDING);
+        var flip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL), premultiply = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+        if (unpack) raw.bindBuffer.call(gl, gl.PIXEL_UNPACK_BUFFER, null);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        var tex = gl.createTexture();
+        raw.bindTexture.call(gl, gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        var aniso = gl.getExtension("EXT_texture_filter_anisotropic");
+        if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+        raw.bindTexture.call(gl, gl.TEXTURE_2D, before || null);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, flip);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, premultiply);
+        if (unpack) raw.bindBuffer.call(gl, gl.PIXEL_UNPACK_BUFFER, unpack);
+        made.push({ source: source, tex: tex });
+        // Old tiles nobody uses any more go.
+        if (made.length > 24) gl.deleteTexture(made.shift().tex);
+        return tex;
+      };
+    })();
+
+    // Draws with unit 0's texture swapped for its replacement, if it has one.
+    function drawRetextured(args) {
+      var tex = boundTex[0], source = tex && tex.__slopeKind && texturePainter && texturePainter[tex.__slopeKind];
+      if (!source) return raw.drawElements.apply(gl, args);
+      var unit = activeTextureNow;
+      try {
+        var swap = textureFor(source);
+        if (unit !== gl.TEXTURE0) native.activeTexture.call(gl, gl.TEXTURE0);
+        raw.bindTexture.call(gl, gl.TEXTURE_2D, swap);
+        raw.drawElements.apply(gl, args);
+      } finally {
+        raw.bindTexture.call(gl, gl.TEXTURE_2D, tex);
+        if (unit !== gl.TEXTURE0) native.activeTexture.call(gl, unit);
+      }
+    }
     var native = window.WebGL2RenderingContext && WebGL2RenderingContext.prototype;
     var bgTarget = null;
 
@@ -597,7 +687,10 @@
       if (seen) sceneVp = vp;
       var isBall = seen && count === BALL_INDEX_COUNT;
       var painted = isBall ? paintBall(arguments) : isTrail() && paintTrail(arguments, "drawElements");
-      if (!painted) raw.drawElements.apply(gl, arguments);
+      if (!painted) {
+        if (seen && !isBall && texturePainter && native) drawRetextured(arguments);
+        else raw.drawElements.apply(gl, arguments);
+      }
       if (!seen) return;
       frame = frame || newFrame();
       if (isBall) {
@@ -703,6 +796,12 @@
     paintBall: function (fn) { ballPainter = fn || null; },
     paintTrail: function (fn) { trailPainter = fn || null; },
     paintBackground: function (fn) { backgroundPainter = fn || null; },
+    // Replacement tiles for the world's textures: { frame, edge, floor, tower,
+    // wall, block } -> a canvas (square, a power of two), or null for the game's own.
+    retexture: function (tiles) {
+      var any = tiles && Object.keys(tiles).some(function (k) { return tiles[k]; });
+      texturePainter = any ? tiles : null;
+    },
     // Ask for the surfaces under points [{ s, x }]. done(hits) runs after the
     // next frame the game draws, with one array of { h, flat } per point, or
     // null if that frame had no ball (no 3D scene).

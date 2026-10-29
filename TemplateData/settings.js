@@ -1,8 +1,9 @@
 /*
- * Slope settings: a gear button that opens a track color changer and a
- * graphics quality choice, drawn in the game's own menu style. Also hosts the
- * page's other UI (window.SlopeUI): the HUD row at the top left and the
- * shared root that keeps key presses away from the game.
+ * Slope settings: a gear button that opens a track color changer, the music
+ * switch (audio.js) and a graphics quality choice, drawn in the game's own
+ * menu style. Also hosts the page's other UI (window.SlopeUI): the HUD row
+ * at the top left and the shared root that keeps key presses away from the
+ * game.
  *
  * The game is a compiled Unity build, so its colors can't be edited directly.
  * Instead an SVG color matrix tints the game: the neon green becomes the chosen
@@ -66,7 +67,8 @@
   var lastFrameTime = 0;
 
   function loadState() {
-    var result = { color: CLASSIC, rainbow: false, graphics: graphics ? graphics.getLevel() : "auto" };
+    var result = { color: CLASSIC, rainbow: false, graphics: graphics ? graphics.getLevel() : "auto",
+      music: !(window.SlopeAudio && window.SlopeAudio.muted()) };
     try {
       var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       if (saved && /^#[0-9a-f]{6}$/i.test(saved.color)) {
@@ -139,6 +141,8 @@
     els.custom.value = hex;
     els.rainbow.setAttribute("aria-pressed", String(state.rainbow));
     els.rainbowState.textContent = state.rainbow ? "On" : "Off";
+    els.music.setAttribute("aria-pressed", String(state.music));
+    els.musicState.textContent = state.music ? "On" : "Off";
     els.name.textContent = state.rainbow ? "Rainbow" : presetName(hex);
     els.hex.textContent = state.rainbow ? "cycling" : hex.toUpperCase();
     if (state.rainbow) {
@@ -253,6 +257,9 @@
         '<button type="button" class="slope-btn slope-row" id="slope-rainbow" aria-pressed="false">' +
           '<span>Rainbow</span><span class="slope-row-state">Off</span>' +
         "</button>" +
+        '<button type="button" class="slope-btn slope-row" id="slope-music" aria-pressed="true">' +
+          '<span>Music</span><span class="slope-row-state">On</span>' +
+        "</button>" +
         '<div class="slope-section" role="group" aria-labelledby="slope-graphics-label">' +
           '<p class="slope-label" id="slope-graphics-label">Graphics</p>' +
           '<div class="slope-segments">' +
@@ -276,7 +283,10 @@
     els.graphics = Array.prototype.slice.call(root.querySelectorAll("[data-graphics]"));
     els.custom = root.querySelector("#slope-custom-color");
     els.rainbow = root.querySelector("#slope-rainbow");
-    els.rainbowState = root.querySelector(".slope-row-state");
+    els.rainbowState = root.querySelector("#slope-rainbow .slope-row-state");
+    els.music = root.querySelector("#slope-music");
+    els.musicState = root.querySelector("#slope-music .slope-row-state");
+    if (!window.SlopeAudio) els.music.hidden = true;
     els.name = root.querySelector(".slope-readout-name");
     els.hex = root.querySelector(".slope-readout-hex");
 
@@ -295,6 +305,12 @@
     els.custom.addEventListener("input", function () { setColor(els.custom.value); });
     els.rainbow.addEventListener("click", function () {
       state.rainbow = !state.rainbow;
+      saveState();
+      render();
+    });
+    els.music.addEventListener("click", function () {
+      state.music = !state.music;
+      if (window.SlopeAudio) window.SlopeAudio.setMuted(!state.music);
       saveState();
       render();
     });

@@ -219,8 +219,10 @@
   function render(p) {
     var mult = fx.multiplier;
     if (els && els.mult) {
-      els.mult.textContent = mult > 1 ? fmtMult(mult) + " per gem" : "";
-      els.mult.hidden = !(mult > 1);
+      // Everything a gem is worth: the tree and the merge game's best ball.
+      var worth = mult * (window.SlopeMerge ? window.SlopeMerge.boost() : 1);
+      els.mult.textContent = worth > 1 ? fmtMult(worth) + " per gem" : "";
+      els.mult.hidden = !(worth > 1);
     }
     if (!els || els.panel.hidden) return;
     var have = {};

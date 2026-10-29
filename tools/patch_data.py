@@ -15,6 +15,7 @@ import webdata
 import patch_steering
 import patch_menu
 import patch_skin
+import patch_sound
 
 def main(path):
     files = webdata.read(open(path, 'rb').read())
@@ -36,6 +37,8 @@ def main(path):
             o.set_raw_data(data); print('EventManager', log + log2)
         elif key == ('sharedassets0.assets', 448):
             data, log = patch_skin.patch(o.get_raw_data()); o.set_raw_data(data); print('RetroGUISkin', log)
+        elif key in (patch_sound.IMAGE, patch_sound.BUTTON):
+            data, log = patch_sound.patch(key, o.get_raw_data()); o.set_raw_data(data); print('SoundButton', log)
     bundle[1] = env.file.save(packer='original')
     open(path, 'wb').write(webdata.write(files))
 

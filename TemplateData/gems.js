@@ -10,7 +10,8 @@
  * Gems are placed on stretches of track whose floor edges can be measured
  * from what the game draws, at the height of the floor the ball is rolling
  * on. Roll through one to collect it; it simply disappears. Each one is
- * worth the gem multiplier (upgrades.js), five times that if it is golden;
+ * worth the gem multiplier (upgrades.js) and the merge game's boost
+ * (merge.js), five times that if it is golden;
  * the upgrade tree can also widen the pickup reach and add gems. Gems are
  * saved to the profile and spent in the shop. They have no effect on the
  * game itself.
@@ -179,7 +180,8 @@
   function collect(g) {
     g.taken = true;
     run.pickups += 1;
-    var worth = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (g.gold ? GOLD_WORTH : 1);
+    var worth = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (g.gold ? GOLD_WORTH : 1) *
+      (window.SlopeMerge ? window.SlopeMerge.boost() : 1);   // the merge game's best ball
     if (window.SlopeProfile) run.gems += window.SlopeProfile.addGems(worth);
   }
 

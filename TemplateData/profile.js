@@ -20,6 +20,9 @@
  *   SlopeProfile.equipSkin(id)
  *   SlopeProfile.buyBackground(id, price)  spends gems; true if bought (and shows it)
  *   SlopeProfile.equipBackground(id)       "none" is the game's own black
+ *   SlopeProfile.buySlope(id, price) / equipSlope(id)   "track-..." and "pillar-..." styles
+ *   SlopeProfile.saveMerge(state, notify)  the merge game's state (get().merge)
+ *   SlopeProfile.spendGems(price)          true if paid
  *   SlopeProfile.completeLevel(n)     Adventure level n beaten: unlocks n + 1
  *   SlopeProfile.onChange(fn)
  *   SlopeProfile.account           { available, signedIn, name, avatarUrl, error }
@@ -48,7 +51,24 @@
 
   function blank() {
     return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0,
-      upgrades: [], gemBank: 0, backgrounds: [], background: "none" };
+      upgrades: [], gemBank: 0, backgrounds: [], background: "none",
+      slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null) };
+  }
+
+  // The merge game (merge.js): best ball level, the board (a level or 0 per
+  // space), clicks towards the next ball and its upgrades.
+  // (A function, so it is ready before the profile is first read.)
+  function mergeUpgrades() { return ["fast", "auto", "better", "lucky", "board", "charm"]; }
+  function cleanMerge(m) {
+    function n(v, max) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? Math.min(v, max) : 0; }
+    var out = { best: 0, board: [], clicks: 0, made: 0, up: {} };
+    m = m && typeof m === "object" ? m : {};
+    out.best = n(m.best, 999999);
+    out.clicks = n(m.clicks, 100);
+    out.made = n(m.made, 1e12);
+    out.board = Array.isArray(m.board) ? m.board.slice(0, 64).map(function (v) { return n(v, 999999); }) : [];
+    mergeUpgrades().forEach(function (k) { out.up[k] = n(m.up && m.up[k], 1000); });
+    return out;
   }
 
   function clean(d) {
@@ -61,12 +81,19 @@
       else if (k === "upgrades") b.upgrades = Array.isArray(d.upgrades) ? d.upgrades.filter(isUpgradeId) : [];
       else if (k === "backgrounds") b.backgrounds = Array.isArray(d.backgrounds) ? d.backgrounds.filter(isSkinId) : [];
       else if (k === "background") b.background = isSkinId(d.background) ? d.background : "none";
+      else if (k === "merge") b.merge = cleanMerge(d.merge);
+      else if (k === "slopes") b.slopes = Array.isArray(d.slopes) ? d.slopes.filter(isSlopeId) : [];
+      else if (k === "track" || k === "pillar") b[k] = isSlopeId(d[k]) && d[k].indexOf(k + "-") === 0 ? d[k] : k + "-classic";
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
     });
     b.advUnlocked = Math.max(1, Math.floor(b.advUnlocked));
     b.gems = Math.floor(b.gems);
     b.gemBank = b.gemBank < 1 ? b.gemBank : 0;
     return b;
+  }
+
+  function isSlopeId(id) {
+    return typeof id === "string" && /^(track|pillar)-[a-z0-9-]{1,32}$/.test(id);
   }
 
   function isSkinId(id) {
@@ -98,6 +125,8 @@
       skins: data.skins.slice(),
       upgrades: data.upgrades.slice(),
       backgrounds: data.backgrounds.slice(),
+      slopes: data.slopes.slice(),
+      merge: JSON.parse(JSON.stringify(data.merge)),
       level: info.level,
       levelXp: info.into,
       levelNeed: info.need,
@@ -205,8 +234,47 @@
     changed();
   }
 
+  // Slope styles: "track-..." for the track, "pillar-..." for the pillars.
+  function buySlope(id, price) {
+    price = Math.floor(price);
+    if (!isSlopeId(id) || !(price >= 0) || data.slopes.indexOf(id) !== -1 || data.gems < price) return false;
+    data.gems -= price;
+    data.slopes.push(id);
+    data[id.split("-")[0]] = id;
+    save();
+    changed();
+    return true;
+  }
+
+  function equipSlope(id) {
+    if (!isSlopeId(id) || (!/-classic$/.test(id) && data.slopes.indexOf(id) === -1)) return;
+    data[id.split("-")[0]] = id;
+    save();
+    changed();
+  }
+
+  // Merge game state. notify: tell the page (the best ball changed); plain
+  // board moves and clicks are only saved.
+  function saveMerge(m, notify) {
+    data.merge = cleanMerge(m);
+    save();
+    if (notify) changed();
+  }
+
+  function spendGems(price) {
+    price = Math.floor(price);
+    if (!(price >= 0) || data.gems < price) return false;
+    data.gems -= price;
+    save();
+    changed();
+    return true;
+  }
+
   function equipSkin(id) {
-    if (!isSkinId(id) || (id !== "classic" && data.skins.indexOf(id) === -1)) return;
+    var secret = /^secret-([1-9][0-9]{0,5})$/.exec(id);
+    if (secret) {
+      if (+secret[1] > data.merge.best) return;   // not reached in the merge game yet
+    } else if (!isSkinId(id) || (id !== "classic" && data.skins.indexOf(id) === -1)) return;
     data.skin = id;
     save();
     changed();
@@ -237,6 +305,16 @@
       gemBank: (a.gemBank + b.gemBank) % 1,
       backgrounds: a.backgrounds.concat(b.backgrounds.filter(function (id) { return a.backgrounds.indexOf(id) === -1; })),
       background: a.background !== "none" ? a.background : b.background,
+      slopes: a.slopes.concat(b.slopes.filter(function (id) { return a.slopes.indexOf(id) === -1; })),
+      track: a.track !== "track-classic" ? a.track : b.track,
+      pillar: a.pillar !== "pillar-classic" ? a.pillar : b.pillar,
+      merge: {
+        best: Math.max(a.merge.best, b.merge.best),
+        board: a.merge.board.some(Boolean) ? a.merge.board : b.merge.board,
+        clicks: a.merge.clicks,
+        made: a.merge.made + b.merge.made,
+        up: mergeUpgrades().reduce(function (o, k) { o[k] = Math.max(a.merge.up[k], b.merge.up[k]); return o; }, {})
+      },
       advWins: a.advWins + b.advWins,
       recent: a.recent.concat(b.recent).sort(function (x, y) { return (x.at || 0) - (y.at || 0); })
     });
@@ -255,7 +333,7 @@
           var saved = snap.exists ? clean(snap.data()) : blank();
           var guest = readLocal();
           var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0 || guest.advUnlocked > 1 || guest.upgrades.length > 0 ||
-            guest.backgrounds.length > 0;
+            guest.backgrounds.length > 0 || guest.slopes.length > 0 || guest.merge.best > 0;
           data = hasGuest ? merge(saved, guest) : saved;
           remote = { ref: ref };
           account.signedIn = true;
@@ -313,6 +391,10 @@
     buySkin: buySkin,
     buyUpgrade: buyUpgrade,
     buyBackground: buyBackground,
+    buySlope: buySlope,
+    saveMerge: saveMerge,
+    spendGems: spendGems,
+    equipSlope: equipSlope,
     equipBackground: equipBackground,
     equipSkin: equipSkin,
     completeLevel: completeLevel,

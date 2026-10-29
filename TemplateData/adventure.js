@@ -50,6 +50,7 @@
   var RED = [1.0, 0.08, 0.06];
   var WHITE = [1.0, 1.0, 1.0];
   var LEVEL_STEP = 18;           // levels added to the grid at a time
+  var MAX_LENGTH = 1000;         // no level is longer than this (metres)
 
   var S = Math.SQRT1_2;
   var SIDE = [1, 0, 0];
@@ -95,7 +96,7 @@
     return {
       n: n,
       kinds: kinds,                     // kinds[0] is the level's main obstacle
-      length: Math.min(1400, 240 + 45 * (n - 1)),
+      length: Math.min(MAX_LENGTH, 240 + 45 * (n - 1)),   // metres down the slope
       gap: 22 - 12 * hard,              // track between obstacles
       tempo: 1 + 0.8 * hard,            // speed of moving obstacles
       pairs: n >= 8,                    // some obstacles come two at a time
@@ -898,7 +899,7 @@
     if (els.hudTitle.textContent !== text) els.hudTitle.textContent = text;
     fill(els.hudBar, run.progress);
     var left = Math.max(0, Math.ceil((1 - run.progress) * run.spec.length));
-    var toGo = left ? left + " to the finish" : "Finish!";
+    var toGo = left ? left + " m to the finish" : "Finish!";
     if (els.hudToGo.textContent !== toGo) els.hudToGo.textContent = toGo;
   }
 
