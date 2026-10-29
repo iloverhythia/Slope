@@ -4,7 +4,9 @@
  *
  *   mirror   left is right and right is left (the Randomizer's Mirror)
  *   ice      a turn goes on for a moment after the key is let go (ice slopes)
- *   wind     short gusts steer the ball one way (wind slopes)
+ *   wind     the ball is pushed one way: the game hears that key for one
+ *            of every few frames it draws (a steady drift that can be
+ *            steered against, never a sudden shove)
  *
  * While no filter is on, the keys go straight to the game. While one is on,
  * the real keys are caught before the game sees them, and the game hears
@@ -17,7 +19,7 @@
  *
  *   SlopeSteer.mirror(on)
  *   SlopeSteer.ice(seconds)       how long a turn goes on after its key is let go (0: off)
- *   SlopeSteer.wind(dir, share)   dir -1 (left) or 1 (right); share of the time a gust blows (0: off)
+ *   SlopeSteer.wind(dir, share)   dir -1 (left) or 1 (right); share of frames it pushes (0: off)
  *   SlopeSteer.reset()            every filter off
  *   SlopeSteer.state()            { mirror, ice, wind, share, held: { left, right }, out: { left, right } }
  */
@@ -27,7 +29,6 @@
   var SIDE = { ArrowLeft: -1, a: -1, A: -1, q: -1, Q: -1, ArrowRight: 1, d: 1, D: 1 };
   var CODE = { ArrowLeft: ["ArrowLeft", 37], ArrowRight: ["ArrowRight", 39], a: ["KeyA", 65], A: ["KeyA", 65],
     q: ["KeyQ", 81], Q: ["KeyQ", 81], d: ["KeyD", 68], D: ["KeyD", 68] };
-  var GUST_PERIOD = 0.32;      // seconds from one gust to the next
 
   var filters = { mirror: false, ice: 0, wind: 0, share: 0 };
   var held = {};               // real keys the player holds: key -> true
@@ -36,6 +37,7 @@
   var was = { left: false, right: false };  // the player's turn last tick (after the mirror)
   var on = false;              // a filter is on: keys are caught
   var ticking = false;
+  var frameNo = 0;             // frames the game has drawn (wind pushes on some of them)
 
   function clock() {
     var game = window.SlopeGame;
@@ -87,7 +89,7 @@
     } else {
       was = { left: left, right: right };
     }
-    if (filters.share > 0 && (t / GUST_PERIOD) % 1 < filters.share) {
+    if (filters.share > 0 && frameNo % Math.max(2, Math.round(1 / filters.share)) === 0) {
       left = filters.wind < 0;
       right = filters.wind > 0;
     }
@@ -101,10 +103,18 @@
     setOut("right", w.right);
   }
 
+  // Ice runs on the clock (between frames too); the wind on the game's frames.
   function tick() {
-    if (!on || !(filters.ice || filters.share)) { ticking = false; return; }
+    if (!on || !filters.ice) { ticking = false; return; }
     update();
     requestAnimationFrame(tick);
+  }
+
+  if (window.SlopeGame) {
+    window.SlopeGame.on("frame", function () {
+      frameNo++;
+      if (on && filters.share > 0) update();
+    });
   }
 
   // Filters changed: hand the keys over between the player and the page.
@@ -125,7 +135,7 @@
     }
     if (!on) return;
     update();
-    if (!ticking && (filters.ice || filters.share)) { ticking = true; requestAnimationFrame(tick); }
+    if (!ticking && filters.ice) { ticking = true; requestAnimationFrame(tick); }
   }
 
   function editable(el) {
