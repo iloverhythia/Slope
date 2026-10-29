@@ -18,7 +18,7 @@
  *
  *   SlopeGems.list()         gems still on the track (slope coordinates)
  *   SlopeGems.iconSvg(w, h)  the dot-matrix gem icon, as SVG markup
- *   SlopeGems.currentRun()   { gems (earned, with the multiplier), pickups, seconds } for the run in progress
+ *   SlopeGems.currentRun()   { gems (earned, with the multiplier), pickups, golds, seconds } for the run in progress
  *   SlopeGems.floor()        height of the floor the ball rolls on (slope h), or null
  */
 (function () {
@@ -43,6 +43,11 @@
     var u = window.SlopeUpgrades;
     return u && u[name] ? u[name]() : 0;
   }
+  // A Randomizer effect (modes.js) going on now.
+  function effect(name) {
+    var m = window.SlopeModes;
+    return !!(m && m.active && m.active(name));
+  }
 
   // Slope directions in world space: up off the track, sideways, downhill.
   var NORMAL = [0, Math.SQRT1_2, Math.SQRT1_2];
@@ -56,7 +61,7 @@
   var lastBall = null;
   var grounded = 0;            // frames the ball has been on the floor
   var lastTime = 0;
-  var run = { gems: 0, pickups: 0, start: 0 };
+  var run = { gems: 0, pickups: 0, golds: 0, start: 0 };
 
   // --- Placement -------------------------------------------------------------
 
@@ -103,7 +108,7 @@
         gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI, gold: Math.random() < luck });
       }
       // The More gems upgrade closes the gaps.
-      var denser = 1 + upgrade("spawn");
+      var denser = (1 + upgrade("spawn")) * (effect("gemrain") ? 3 : 1);
       nextS = s + (GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN)) / denser + (line - 1) * 3.5;
     }
   }
@@ -121,7 +126,7 @@
   game.on("runstart", function () {
     reset();
     running = true;
-    run = { gems: 0, pickups: 0, start: performance.now() };
+    run = { gems: 0, pickups: 0, golds: 0, start: performance.now() };
   });
 
   game.on("runend", function () {
@@ -134,7 +139,7 @@
   // Did the ball pass through the gem since the last frame? Checking the whole
   // path, not just where the ball is now, keeps fast balls and slow frames fair.
   function touches(g, from, to) {
-    var reach = 1 + upgrade("magnet");   // the Magnet upgrade reaches further sideways
+    var reach = 1 + upgrade("magnet") + (effect("magnet") ? 1.5 : 0);   // the Magnet upgrade reaches further sideways
     var lo = Math.min(from.s, to.s) - PICKUP.s, hi = Math.max(from.s, to.s) + PICKUP.s;
     if (g.s < lo || g.s > hi) return false;
     var span = to.s - from.s;
@@ -161,7 +166,7 @@
     if (running) {
       if (floorH !== null && grounded > 3) spawnAhead(frame);
       var settle = 1 - Math.exp(-dt * 6);
-      var magnet = upgrade("magnet");
+      var magnet = upgrade("magnet") + (effect("magnet") ? 1.5 : 0);
       var pull = magnet ? 1 - Math.exp(-dt * 5 * Math.min(1, magnet * 2)) : 0;
       gems.forEach(function (g) {
         g.h += (floorH + REST - g.h) * settle; // follow the floor if it changes level
@@ -180,8 +185,10 @@
   function collect(g) {
     g.taken = true;
     run.pickups += 1;
+    if (g.gold) run.golds += 1;
     var worth = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (g.gold ? GOLD_WORTH : 1) *
-      (window.SlopeMerge ? window.SlopeMerge.boost() : 1);   // the merge game's best ball
+      (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *   // the merge game's best ball
+      (effect("double") ? 2 : 1);
     if (window.SlopeProfile) run.gems += window.SlopeProfile.addGems(worth);
   }
 
@@ -347,7 +354,8 @@
     },
     floor: function () { return floorH; },
     currentRun: function () {
-      return { gems: run.gems, pickups: run.pickups, seconds: run.start ? (performance.now() - run.start) / 1000 : 0 };
+      var seconds = run.start ? (performance.now() - run.start) / 1000 : 0;   // on the game's clock
+      return { gems: run.gems, pickups: run.pickups, golds: run.golds, seconds: seconds };
     }
   };
 })();

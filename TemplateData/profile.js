@@ -11,7 +11,8 @@
  * Guest progress made before logging in is added to the account once.
  *
  *   SlopeProfile.get()             current profile with level info
- *   SlopeProfile.recordRun(run)    { score, gems, seconds } -> { xp, levelBefore, levelAfter }
+ *   SlopeProfile.recordRun(run)    { score, gems, golds, seconds } -> { xp, levelBefore, levelAfter }
+ *   SlopeProfile.recordModeRun(mode, score, { dodged })   a run in a game mode (modes.js)
  *   SlopeProfile.xpFor(score)      XP a run with that score earns
  *   SlopeProfile.addGems(n)            n can be fractional (gem multiplier): the
  *                                      fraction is kept; returns whole gems added
@@ -52,7 +53,21 @@
   function blank() {
     return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0,
       upgrades: [], gemBank: 0, backgrounds: [], background: "none",
-      slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null) };
+      slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null),
+      gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null) };
+  }
+
+  // Runs per game mode (modes.js): { runs, best, total, dodged }.
+  function modeNames() { return ["classic", "randomizer", "advanced"]; }
+  function cleanModes(m) {
+    function n(v) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? v : 0; }
+    var out = {};
+    m = m && typeof m === "object" ? m : {};
+    modeNames().forEach(function (k) {
+      var x = m[k] && typeof m[k] === "object" ? m[k] : {};
+      out[k] = { runs: n(x.runs), best: n(x.best), total: n(x.total), dodged: n(x.dodged) };
+    });
+    return out;
   }
 
   // The merge game (merge.js): best ball level, the board (a level or 0 per
@@ -82,6 +97,7 @@
       else if (k === "backgrounds") b.backgrounds = Array.isArray(d.backgrounds) ? d.backgrounds.filter(isSkinId) : [];
       else if (k === "background") b.background = isSkinId(d.background) ? d.background : "none";
       else if (k === "merge") b.merge = cleanMerge(d.merge);
+      else if (k === "modes") b.modes = cleanModes(d.modes);
       else if (k === "slopes") b.slopes = Array.isArray(d.slopes) ? d.slopes.filter(isSlopeId) : [];
       else if (k === "track" || k === "pillar") b[k] = isSlopeId(d[k]) && d[k].indexOf(k + "-") === 0 ? d[k] : k + "-classic";
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
@@ -127,6 +143,7 @@
       backgrounds: data.backgrounds.slice(),
       slopes: data.slopes.slice(),
       merge: JSON.parse(JSON.stringify(data.merge)),
+      modes: JSON.parse(JSON.stringify(data.modes)),
       level: info.level,
       levelXp: info.into,
       levelNeed: info.need,
@@ -176,6 +193,9 @@
     data.total += score;
     data.best = Math.max(data.best, score);
     data.bestGems = Math.max(data.bestGems, gems);
+    data.gemsTotal += gems;
+    data.goldTotal += Math.max(0, Math.floor(run.golds || 0));
+    data.longestRun = Math.max(data.longestRun, Math.round(run.seconds || 0));
     data.playSeconds += Math.max(0, Math.round(run.seconds || 0));
     data.recent.push({ score: score, gems: gems, at: Date.now() });
     data.recent = data.recent.slice(-RECENT_RUNS);
@@ -199,6 +219,7 @@
     price = Math.floor(price);
     if (!isUpgradeId(id) || !(price >= 0) || data.upgrades.indexOf(id) !== -1 || data.gems < price) return false;
     data.gems -= price;
+    data.spent += price;
     data.upgrades.push(id);
     save();
     changed();
@@ -209,6 +230,7 @@
     price = Math.floor(price);
     if (!isSkinId(id) || !(price >= 0) || data.skins.indexOf(id) !== -1 || data.gems < price) return false;
     data.gems -= price;
+    data.spent += price;
     data.skins.push(id);
     data.skin = id;
     save();
@@ -220,6 +242,7 @@
     price = Math.floor(price);
     if (!isSkinId(id) || !(price >= 0) || data.backgrounds.indexOf(id) !== -1 || data.gems < price) return false;
     data.gems -= price;
+    data.spent += price;
     data.backgrounds.push(id);
     data.background = id;
     save();
@@ -239,6 +262,7 @@
     price = Math.floor(price);
     if (!isSlopeId(id) || !(price >= 0) || data.slopes.indexOf(id) !== -1 || data.gems < price) return false;
     data.gems -= price;
+    data.spent += price;
     data.slopes.push(id);
     data[id.split("-")[0]] = id;
     save();
@@ -255,6 +279,19 @@
 
   // Merge game state. notify: tell the page (the best ball changed); plain
   // board moves and clicks are only saved.
+  // A run in a game mode ended (modes.js); extra: { dodged } for Advanced.
+  function recordModeRun(mode, score, extra) {
+    var m = data.modes[mode];
+    if (!m) return;
+    score = Math.max(0, Math.floor(score || 0));
+    m.runs += 1;
+    m.best = Math.max(m.best, score);
+    m.total += score;
+    m.dodged += Math.max(0, Math.floor((extra && extra.dodged) || 0));
+    save();
+    changed();
+  }
+
   function saveMerge(m, notify) {
     data.merge = cleanMerge(m);
     save();
@@ -265,6 +302,7 @@
     price = Math.floor(price);
     if (!(price >= 0) || data.gems < price) return false;
     data.gems -= price;
+    data.spent += price;
     save();
     changed();
     return true;
@@ -308,6 +346,15 @@
       slopes: a.slopes.concat(b.slopes.filter(function (id) { return a.slopes.indexOf(id) === -1; })),
       track: a.track !== "track-classic" ? a.track : b.track,
       pillar: a.pillar !== "pillar-classic" ? a.pillar : b.pillar,
+      gemsTotal: a.gemsTotal + b.gemsTotal,
+      goldTotal: a.goldTotal + b.goldTotal,
+      spent: a.spent + b.spent,
+      longestRun: Math.max(a.longestRun, b.longestRun),
+      modes: modeNames().reduce(function (o, k) {
+        var x = a.modes[k], y = b.modes[k];
+        o[k] = { runs: x.runs + y.runs, best: Math.max(x.best, y.best), total: x.total + y.total, dodged: x.dodged + y.dodged };
+        return o;
+      }, {}),
       merge: {
         best: Math.max(a.merge.best, b.merge.best),
         board: a.merge.board.some(Boolean) ? a.merge.board : b.merge.board,
@@ -393,6 +440,7 @@
     buyBackground: buyBackground,
     buySlope: buySlope,
     saveMerge: saveMerge,
+    recordModeRun: recordModeRun,
     spendGems: spendGems,
     equipSlope: equipSlope,
     equipBackground: equipBackground,

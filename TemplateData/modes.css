@@ -1,0 +1,126 @@
+/* Game mode picker (on the Career screen's frame, career.css) and the
+   Randomizer's effect banner and blackout veil. Tokens from settings.css. */
+
+.slope-modes-inner {
+  width: min(900px, 100%);
+}
+
+.slope-modes-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slope-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 16px;
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  text-align: center;
+}
+
+.slope-mode.is-chosen {
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+}
+
+/* The previews are page drawings, so they get the game's track colour tint. */
+.slope-mode-preview {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  aspect-ratio: 16 / 10;
+  box-shadow: 0 0 0 1px var(--slope-dim);
+  filter: url(#slope-tint);
+}
+
+.slope-mode-name {
+  margin: 0;
+  font-family: var(--slope-display);
+  font-size: 26px;
+  font-weight: normal;
+  line-height: 1;
+}
+
+.slope-mode-text {
+  flex: 1;
+  color: var(--slope-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.slope-mode-best {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-mode-play {
+  width: 100%;
+  min-height: 46px;
+  font-size: 20px;
+}
+
+/* Randomizer: the effect going on now, under the HUD at the top left (the
+   game's own hints and the view ahead stay clear). */
+.slope-effect {
+  position: fixed;
+  z-index: 1000;
+  top: calc(66px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  width: min(260px, calc(100vw - 24px));
+  padding: 10px 14px 12px;
+  background: var(--slope-ground);
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  color: var(--slope-color);
+  text-align: center;
+  pointer-events: none;
+}
+
+.slope-effect[hidden] {
+  display: none;
+}
+
+.slope-effect.is-bad {
+  --slope-color: var(--slope-hover);
+}
+
+.slope-effect-name {
+  font-family: var(--slope-display);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.slope-effect-text {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.slope-effect-bar {
+  height: 6px;
+  margin-top: 8px;
+  box-shadow: inset 0 0 0 1px var(--slope-color);
+}
+
+.slope-effect-bar span {
+  display: block;
+  height: 100%;
+  background: var(--slope-color);
+  transform-origin: left;
+}
+
+/* Blackout: dark everywhere but a hole around (and a little ahead of) the ball. */
+.slope-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--x, 50%) var(--y, 70%), rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) var(--r, 120px), rgba(0, 0, 0, 0.97) calc(var(--r, 120px) * 1.8));
+}
+
+.slope-veil[hidden] {
+  display: none;
+}

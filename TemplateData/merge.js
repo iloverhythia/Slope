@@ -150,10 +150,17 @@
     els.spawn.addEventListener("click", function () { click(1); });
     els.back.addEventListener("click", close);
     screen.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+    // A drag is followed on the whole window, not just the board, so a
+    // release anywhere (or a lost pointer, a second finger, switching away)
+    // always ends it and never leaves a ball floating on the screen.
     els.board.addEventListener("pointerdown", pointerDown);
-    els.board.addEventListener("pointermove", pointerMove);
-    els.board.addEventListener("pointerup", pointerUp);
-    els.board.addEventListener("pointercancel", function () { endDrag(); });
+    window.addEventListener("pointermove", pointerMove, true);
+    window.addEventListener("pointerup", pointerUp, true);
+    window.addEventListener("pointercancel", function (e) { if (drag && e.pointerId === drag.id) endDrag(); }, true);
+    els.board.addEventListener("lostpointercapture", function (e) { if (drag && e.pointerId === drag.id && !drag.moving) endDrag(); });
+    window.addEventListener("blur", function () { endDrag(); });
+    document.addEventListener("visibilitychange", function () { if (document.hidden) endDrag(); });
+    els.board.addEventListener("contextmenu", function (e) { e.preventDefault(); });
     els.board.addEventListener("click", function (e) {
       if (e.detail !== 0) return;   // pointers are handled above; this is the keyboard
       var cell = e.target.closest(".slope-merge-cell");
@@ -265,9 +272,11 @@
   function pointerDown(e) {
     var cell = e.target.closest(".slope-merge-cell");
     if (!cell || e.button > 0) return;
+    if (drag) { endDrag(); return; }   // a second finger or button: drop the first drag
+    if (e.isPrimary === false) return;
     var i = +cell.getAttribute("data-i");
     drag = { from: i, x: e.clientX, y: e.clientY, id: e.pointerId, moving: false, ghost: null };
-    els.board.setPointerCapture(e.pointerId);
+    try { els.board.setPointerCapture(e.pointerId); } catch (err) {}
   }
 
   function pointerMove(e) {
@@ -296,10 +305,12 @@
   }
 
   function endDrag() {
-    if (!drag) return;
-    if (drag.ghost) drag.ghost.remove();
-    if (els.cells[drag.from]) els.cells[drag.from].el.classList.remove("is-lifted");
+    var d = drag;
     drag = null;
+    if (d) { try { els.board.releasePointerCapture(d.id); } catch (err) {} }
+    // Clear every floating copy and lifted space, not only this drag's.
+    Array.prototype.forEach.call(window.SlopeUI.root.querySelectorAll(".slope-merge-ghost"), function (g) { g.remove(); });
+    els.cells.forEach(function (c) { c.el.classList.remove("is-lifted"); });
   }
 
   // --- Spawning ------------------------------------------------------------------

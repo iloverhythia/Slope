@@ -34,7 +34,15 @@
     { id: "track-circuit", name: "Circuit", price: 80, style: "circuit" },
     { id: "track-double", name: "Double", price: 85, style: "double" },
     { id: "track-glow", name: "Glow", price: 100, style: "glow" },
-    { id: "track-rainbow", name: "Rainbow", price: 120, style: "rainbow" }
+    { id: "track-rainbow", name: "Rainbow", price: 120, style: "rainbow" },
+    { id: "track-cross", name: "Cross", price: 40, style: "cross" },
+    { id: "track-triangles", name: "Triangles", price: 50, style: "triangles" },
+    { id: "track-arrows", name: "Arrows", price: 55, style: "arrows" },
+    { id: "track-stars", name: "Stars", price: 65, style: "stars" },
+    { id: "track-maze", name: "Maze", price: 75, style: "maze" },
+    { id: "track-pixels", name: "Pixels", price: 80, style: "pixels" },
+    { id: "track-lattice", name: "Lattice", price: 90, style: "lattice" },
+    { id: "track-ice", name: "Ice", price: 110, style: "ice" }
   ];
   var PILLARS = [
     { id: "pillar-classic", name: "Classic", price: 0 },
@@ -46,8 +54,18 @@
     { id: "pillar-checker", name: "Checker", price: 60, style: "checker" },
     { id: "pillar-hex", name: "Hex", price: 70, style: "hex" },
     { id: "pillar-circles", name: "Circles", price: 75, style: "circles" },
-    { id: "pillar-glass", name: "Glass", price: 90, style: "glass" }
+    { id: "pillar-glass", name: "Glass", price: 90, style: "glass" },
+    { id: "pillar-scales", name: "Scales", price: 40, style: "scales" },
+    { id: "pillar-plaid", name: "Plaid", price: 45, style: "plaid" },
+    { id: "pillar-spiral", name: "Spiral", price: 55, style: "spiral" },
+    { id: "pillar-target", name: "Target", price: 60, style: "target" },
+    { id: "pillar-steps", name: "Steps", price: 65, style: "steps" },
+    { id: "pillar-neon", name: "Neon", price: 80, style: "neon" },
+    { id: "pillar-fire", name: "Fire", price: 100, style: "fire" },
+    { id: "pillar-gold", name: "Gold", price: 120, style: "gold" }
   ];
+
+  [TRACK, PILLARS].forEach(function (list) { list.sort(function (a, b) { return a.price - b.price; }); });
 
   function byId(list, id) {
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
@@ -219,6 +237,160 @@
       path(x, [[S * 0.2, S * 0.45], [S * 0.45, S * 0.2]]); x.stroke();
     }
   };
+
+  // A red tile stays red-ish in the coloured styles, so danger still reads as danger.
+  function isGreen(colour) { return colour === GREEN; }
+  function star(x, cx, cy, r) {
+    var pts = [];
+    for (var i = 0; i < 10; i++) { var a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]); }
+    path(x, pts, true);
+  }
+  var MORE_STYLES = {
+    cross: function (x, S, mode, w) {
+      if (mode !== "fill") border(x, S, w);
+      x.lineWidth = mode === "fill" ? S * 0.18 : w * 0.8;
+      path(x, [[S * 0.2, S * 0.2], [S * 0.8, S * 0.8]]); x.stroke();
+      path(x, [[S * 0.8, S * 0.2], [S * 0.2, S * 0.8]]); x.stroke();
+    },
+    triangles: function (x, S, mode, w) {
+      path(x, [[S * 0.5, S * 0.14], [S * 0.86, S * 0.8], [S * 0.14, S * 0.8]], true);
+      if (mode === "fill") { x.fill(); return; }
+      x.lineWidth = w * 0.8; x.stroke();
+      border(x, S, w * 0.6);
+    },
+    arrows: function (x, S, mode, w) {
+      if (mode !== "fill") border(x, S, w);
+      x.lineWidth = mode === "fill" ? S * 0.16 : w * 0.8;
+      x.lineJoin = "miter";
+      path(x, [[S * 0.22, S * 0.62], [S * 0.5, S * 0.34], [S * 0.78, S * 0.62]]); x.stroke();
+      path(x, [[S * 0.5, S * 0.36], [S * 0.5, S * 0.86]]); x.stroke();
+    },
+    stars: function (x, S, mode, w) {
+      star(x, S / 2, S * 0.53, S * (mode === "fill" ? 0.4 : 0.32));
+      if (mode === "fill") { x.fill(); return; }
+      x.lineWidth = w * 0.7; x.stroke();
+      border(x, S, w * 0.6);
+    },
+    maze: function (x, S, mode, w) {
+      var n = 4, c = S / n, lw = mode === "fill" ? S * 0.08 : w * 0.6;
+      x.lineWidth = lw;
+      x.lineCap = "square";
+      var bits = [1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1];   // a fixed maze
+      for (var i = 0; i < n; i++) for (var j = 0; j < n; j++) {
+        var a = i * c, b = j * c;
+        if (bits[i * n + j]) path(x, [[a, b], [a + c, b + c]]); else path(x, [[a + c, b], [a, b + c]]);
+        x.stroke();
+      }
+      if (mode !== "fill") border(x, S, w * 0.6);
+    },
+    pixels: function (x, S, mode, w) {
+      var n = 8, c = S / n;
+      var art = ["00111100", "01000010", "10100101", "10000001", "10100101", "10011001", "01000010", "00111100"];
+      x.globalAlpha = mode === "fill" ? 1 : 0.8;
+      art.forEach(function (row, j) { for (var i = 0; i < n; i++) if (row[i] === "1") x.fillRect(i * c + 1, j * c + 1, c - 2, c - 2); });
+      x.globalAlpha = 1;
+      if (mode !== "fill") border(x, S, w * 0.5);
+    },
+    lattice: function (x, S, mode, w) {
+      x.lineWidth = mode === "fill" ? S * 0.1 : w * 0.6;
+      [-0.5, 0, 0.5, 1].forEach(function (k) {
+        path(x, [[k * S, 0], [k * S + S, S]]); x.stroke();
+        path(x, [[k * S + S, 0], [k * S, S]]); x.stroke();
+      });
+      if (mode !== "fill") border(x, S, w);
+    },
+    ice: function (x, S, mode, w, colour) {
+      var c = isGreen(colour) ? "#bff6ff" : colour, d = isGreen(colour) ? "#3fd0ff" : colour;
+      var g = x.createLinearGradient(0, 0, S, S);
+      g.addColorStop(0, c); g.addColorStop(1, d);
+      x.strokeStyle = x.fillStyle = g;
+      if (mode === "fill") { x.globalAlpha = 0.85; x.fillRect(S * 0.08, S * 0.08, S * 0.84, S * 0.84); x.globalAlpha = 1; }
+      else border(x, S, w);
+      x.strokeStyle = mode === "fill" ? "#000" : c;
+      x.lineWidth = Math.max(1, w * 0.35);
+      path(x, [[S * 0.5, S * 0.5], [S * 0.18, S * 0.2]]); x.stroke();
+      path(x, [[S * 0.5, S * 0.5], [S * 0.85, S * 0.3]]); x.stroke();
+      path(x, [[S * 0.5, S * 0.5], [S * 0.42, S * 0.88]]); x.stroke();
+    },
+    scales: function (x, S, mode, w) {
+      x.lineWidth = mode === "fill" ? S * 0.09 : w * 0.7;
+      [[0, 0.5], [0.5, 0.5], [1, 0.5], [0.25, 1], [0.75, 1], [0.25, 0], [0.75, 0]].forEach(function (p) {
+        x.beginPath(); x.arc(p[0] * S, p[1] * S, S * 0.25, 0, Math.PI); x.stroke();
+      });
+      if (mode !== "fill") border(x, S, w * 0.6);
+    },
+    plaid: function (x, S, mode, w) {
+      x.globalAlpha = mode === "fill" ? 0.8 : 0.45;
+      x.fillRect(0, S * 0.3, S, S * 0.12); x.fillRect(S * 0.3, 0, S * 0.12, S);
+      x.globalAlpha = 1;
+      x.lineWidth = Math.max(1, w * 0.35);
+      [0.62, 0.72].forEach(function (k) { path(x, [[0, k * S], [S, k * S]]); x.stroke(); path(x, [[k * S, 0], [k * S, S]]); x.stroke(); });
+      if (mode !== "fill") border(x, S, w);
+    },
+    spiral: function (x, S, mode, w) {
+      var pts = [], k = 0.12, step = 0.12;
+      pts.push([k * S, (1 - k) * S]);
+      var l = k, r = 1 - k, t = k, b = 1 - k, side = 0;
+      while (r - l > step && b - t > step) {
+        if (side === 0) pts.push([r * S, b * S]), b -= step;
+        else if (side === 1) pts.push([r * S, t * S]), l += step;
+        else if (side === 2) pts.push([l * S, t * S]), r -= step;
+        else pts.push([l * S, b * S]), t += step;
+        side = (side + 1) % 4;
+      }
+      x.lineWidth = mode === "fill" ? S * 0.07 : w * 0.6;
+      path(x, pts); x.stroke();
+      if (mode !== "fill") border(x, S, w * 0.6);
+    },
+    target: function (x, S, mode, w) {
+      x.lineWidth = mode === "fill" ? S * 0.07 : w * 0.6;
+      [0.38, 0.25, 0.12].forEach(function (r) { x.beginPath(); x.arc(S / 2, S / 2, r * S, 0, Math.PI * 2); x.stroke(); });
+      x.beginPath(); x.arc(S / 2, S / 2, S * 0.04, 0, Math.PI * 2); x.fill();
+      if (mode !== "fill") border(x, S, w * 0.6);
+    },
+    steps: function (x, S, mode, w) {
+      x.lineWidth = mode === "fill" ? S * 0.1 : w * 0.8;
+      x.lineJoin = "miter";
+      path(x, [[0, S * 0.85], [S * 0.25, S * 0.85], [S * 0.25, S * 0.6], [S * 0.5, S * 0.6], [S * 0.5, S * 0.35], [S * 0.75, S * 0.35], [S * 0.75, S * 0.1], [S, S * 0.1]]);
+      x.stroke();
+      if (mode !== "fill") border(x, S, w);
+    },
+    neon: function (x, S, mode, w, colour) {
+      x.shadowColor = colour;
+      x.shadowBlur = S * 0.08;
+      x.lineWidth = Math.max(1.5, w * 0.35);
+      x.strokeRect(S * 0.06, S * 0.06, S * 0.88, S * 0.88);
+      x.strokeRect(S * 0.18, S * 0.18, S * 0.64, S * 0.64);
+      if (mode === "fill") { x.globalAlpha = 0.5; x.fillRect(S * 0.3, S * 0.3, S * 0.4, S * 0.4); x.globalAlpha = 1; }
+      x.shadowBlur = 0;
+    },
+    fire: function (x, S, mode, w, colour) {
+      var g = x.createLinearGradient(0, S, 0, 0);
+      g.addColorStop(0, isGreen(colour) ? "#ff3a00" : colour);
+      g.addColorStop(1, isGreen(colour) ? "#ffd400" : "#ff8a00");
+      x.strokeStyle = x.fillStyle = g;
+      if (mode === "fill") { x.fillRect(S * 0.1, S * 0.1, S * 0.8, S * 0.8); return; }
+      border(x, S, w);
+      x.lineWidth = w * 0.6;
+      [0.3, 0.5, 0.7].forEach(function (k, i) {
+        x.beginPath(); x.moveTo(k * S, S * 0.9);
+        x.quadraticCurveTo((k + (i % 2 ? 0.12 : -0.12)) * S, S * 0.55, k * S, S * (0.3 + 0.1 * i));
+        x.stroke();
+      });
+    },
+    gold: function (x, S, mode, w, colour) {
+      var g = x.createLinearGradient(0, 0, S, S);
+      g.addColorStop(0, isGreen(colour) ? "#fff2a8" : "#ff9c7a");
+      g.addColorStop(0.5, isGreen(colour) ? "#e0a020" : colour);
+      g.addColorStop(1, isGreen(colour) ? "#fff2a8" : "#ff9c7a");
+      x.strokeStyle = x.fillStyle = g;
+      if (mode === "fill") { x.fillRect(S * 0.1, S * 0.1, S * 0.8, S * 0.8); return; }
+      border(x, S, w);
+      x.lineWidth = w * 0.5;
+      x.strokeRect(S * 0.24, S * 0.24, S * 0.52, S * 0.52);
+    }
+  };
+  Object.keys(MORE_STYLES).forEach(function (k) { STYLES[k] = MORE_STYLES[k]; });
 
   var tileCache = {};
   function tile(style, mode, width, colour) {

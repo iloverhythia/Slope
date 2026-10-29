@@ -25,6 +25,8 @@
  *   SlopeAdventure.level(n)      the level's description
  *   SlopeAdventure.isClear(s)    false where a level obstacle stands (gems avoid it)
  *   SlopeAdventure.handlesRun()  true while the current run is an Adventure level
+ *   SlopeAdventure.setEndless(on) Advanced mode: normal runs get endless obstacles
+ *   SlopeAdventure.dodged()      obstacles passed in the Advanced run
  *   SlopeAdventure.obstacles()   the obstacles on the track now
  */
 (function () {
@@ -35,8 +37,11 @@
   if (!game || !profile || !window.SlopeUI) return;
 
   var BALL_RADIUS = 0.45;        // the ball is 0.5; a little forgiving
-  var PLACE_AHEAD = 60;          // obstacles go on the track at most this far ahead...
-  var GIVE_UP_AHEAD = 18;        // ...and are left out if no floor shows up before this
+  var PLACE_AHEAD = 60;          // obstacles go on the track from this far ahead (further when fast)...
+  var GIVE_UP_AHEAD = 18;        // ...and are left out if no floor shows up before this (further when fast)
+  var LOOK_AHEAD = 2.4;          // seconds of travel ahead to start looking, at the ball's speed
+  var WARNING = 1.0;             // seconds: no obstacle ever appears closer than this
+  var AIR_DROP = 14;             // in the air, look this far below for the floor ahead
   var FIRST_OBSTACLE = 45;       // distance from the start
   var PROBE_REACH = 8;           // look for floor this far to each side
   var PROBE_STEP = 0.5;
@@ -254,10 +259,10 @@
   // Open floor at one probe point: the highest flat surface near the ball's
   // floor height, with room above it (under a red side ramp there isn't;
   // under a tunnel roof there is). Its height, or null.
-  function openFloor(list, ref) {
+  function openFloor(list, ref, below) {
     var top = null;
     list.forEach(function (hit) {
-      if (hit.flat && hit.h > ref - 8 && hit.h < ref + 1 && (top === null || hit.h > top)) top = hit.h;
+      if (hit.flat && hit.h > ref - (below || 8) && hit.h < ref + 1 && (top === null || hit.h > top)) top = hit.h;
     });
     if (top === null) return null;
     var covered = list.some(function (hit) { return hit.h > top + 0.05 && hit.h < top + 2; });
@@ -270,8 +275,8 @@
   // at the same height make one floor. Returns the floor that is the likeliest
   // track (at least MIN_FLOOR wide, nearest the ball's height, then nearest
   // x), or null.
-  function floorRow(xs, rows, x, ref) {
-    var per = rows.map(function (hits) { return hits.map(function (list) { return openFloor(list, ref); }); });
+  function floorRow(xs, rows, x, ref, below) {
+    var per = rows.map(function (hits) { return hits.map(function (list) { return openFloor(list, ref, below); }); });
     var middle = per[per.length >> 1];
     var heights = middle.map(function (h, i) {
       if (h === null) return null;
@@ -304,7 +309,7 @@
   // next frame the game draws.
   var PROBE_ROWS = [-1.5, 0, 1.5];
 
-  function probe(item, s, x, ref) {
+  function probe(item, s, x, ref, below) {
     var xs = [], points = [];
     for (var dx = -PROBE_REACH; dx <= PROBE_REACH + 1e-6; dx += PROBE_STEP) xs.push(x + dx);
     PROBE_ROWS.forEach(function (ds) {
@@ -315,7 +320,7 @@
     game.probeFloor(points, function (hits) {
       if (run !== forRun || item.state !== "probing") return;
       var rows = hits ? PROBE_ROWS.map(function (ds, r) { return hits.slice(r * xs.length, (r + 1) * xs.length); }) : null;
-      var floor = rows ? floorRow(xs, rows, x, ref) : null;
+      var floor = rows ? floorRow(xs, rows, x, ref, below) : null;
       item.floor = floor;
       item.state = floor ? "found" : "waiting";
     });
@@ -355,6 +360,29 @@
     showIntro(spec);
   }
 
+  // Advanced mode (modes.js): a normal endless run with every kind of
+  // obstacle, closer together and quicker the further the ball gets. Same
+  // placement and fairness as the levels; a hit is the game's own crash.
+  var endless = false, endlessLast = null;
+  function beginEndless() {
+    run = { endless: true, spec: { n: 0, tempo: 1, pairs: false }, plan: [], next: 0, parts: [], startS: null, goalS: Infinity,
+      hit: null, progress: 0, last: null, lane: null, speed: 0, planned: FIRST_OBSTACLE, passed: 0 };
+    mode = "playing";
+  }
+  function extendEndless(ball) {
+    var d = ball.s - run.startS;
+    while (run.planned < d + Math.max(PLACE_AHEAD, run.speed * LOOK_AHEAD) + 40) {
+      var at = run.planned, hard = Math.min(1, at / 2500);
+      var kind = ORDER[Math.floor(Math.random() * ORDER.length)];
+      run.plan.push({ kind: kind, at: at, a: Math.random(), b: Math.random(), c: Math.random(),
+        spec: { tempo: 1 + 0.8 * hard, pairs: at > 600 } });
+      run.planned += (22 - 12 * hard) * (0.8 + Math.random() * 0.5) + (kind === "spinner" ? 6 : 0);
+    }
+    run.plan.forEach(function (item) {
+      if (item.state === "placed" && !item.passed && run.startS + item.at < ball.s - 2) { item.passed = true; run.passed++; }
+    });
+  }
+
   function now() { return performance.now() / 1000; }
 
   game.on("frame", function (frame) {
@@ -362,8 +390,9 @@
     var ball = frame.ball;
     if (run.startS === null) {
       run.startS = ball.s;
-      run.goalS = ball.s + run.spec.length;
+      if (!run.endless) run.goalS = ball.s + run.spec.length;
     }
+    if (run.endless) extendEndless(ball);
     // The ball's speed down the slope, smoothed (game clock).
     var clock = game.gameTime();
     if (run.clock !== undefined && clock > run.clock) {
@@ -373,26 +402,33 @@
     run.clock = clock;
     run.lastS = ball.s;
     // The floor height the ball rolls on tells the track ahead from tunnel
-    // roofs and the city far below. The ball starts on a ramp above the
-    // track, so wait until it rolls on the floor.
-    var ref = window.SlopeGems ? window.SlopeGems.floor() : ball.h - 0.5;
+    // roofs and the city far below. In the air (off the starting ramp, or
+    // over a drop) the track ahead can be lower, so look deeper; obstacles
+    // never wait for the ball to land.
+    var floor = window.SlopeGems ? window.SlopeGems.floor() : null;
+    var ref = floor !== null ? floor : ball.h - 0.5;
+    var below = floor === null || ball.h - floor > 0.8 ? AIR_DROP : 8;
+    // How far ahead to place, and the nearest an obstacle may appear: more
+    // room the faster the ball goes.
+    var placeAhead = Math.max(PLACE_AHEAD, run.speed * LOOK_AHEAD);
+    var giveUp = Math.max(GIVE_UP_AHEAD, run.speed * WARNING);
 
     // Put obstacles on the track once the floor under them exists, looking for
     // it straight ahead of the ball.
     // Probes run side by side, but obstacles are placed in order, as each
     // lane is picked from the one before.
     var waiting = [], blocked = false;
-    for (var n = run.next; ref !== null && n < run.plan.length; n++) {
+    for (var n = run.next; n < run.plan.length; n++) {
       var item = run.plan[n];
       var s = run.startS + item.at;
       if (item.state === "placed" || item.state === "skipped") {
         if (n === run.next) run.next++;
         continue;
       }
-      if (s > ball.s + PLACE_AHEAD) break;
-      if (s < ball.s + GIVE_UP_AHEAD) { item.state = "skipped"; continue; } // no floor there in time (a gap)
+      if (s > ball.s + placeAhead) break;
+      if (s < ball.s + giveUp) { item.state = "skipped"; continue; } // no floor there in time (a gap)
       if (item.state === "found" && !blocked) {
-        var built = buildObstacle(item, s, item.floor, run.spec,
+        var built = buildObstacle(item, s, item.floor, item.spec || run.spec,
           laneReach(run.lane || { s: ball.s, x: ball.x, depth: 0 }, s, item.kind, run.speed));
         if (built.lane !== undefined) run.lane = { s: s, x: built.lane, depth: item.kind === "spinner" ? 3.5 : 0.7 };
         run.parts = run.parts.concat(built);
@@ -403,7 +439,7 @@
         continue;
       }
       if (item.state === "waiting") item.empty = true;   // looked, and no floor yet
-      if (item.state !== "probing" && item.state !== "found") probe(item, s, ball.x, ref);
+      if (item.state !== "probing" && item.state !== "found") probe(item, s, ball.x, ref, below);
       if (item.empty) waiting.push(item);
       else blocked = true;   // its first answer is still to come
     }
@@ -424,8 +460,11 @@
           if (p.solid && touches(p, bs, bx, bh)) { run.hit = p.kind; break; }
         }
       }
-      run.progress = Math.max(0, Math.min(1, (ball.s - run.startS) / run.spec.length));
-      if (run.hit) {
+      if (!run.endless) run.progress = Math.max(0, Math.min(1, (ball.s - run.startS) / run.spec.length));
+      if (run.hit && run.endless) {
+        mode = "failed";
+        game.send("collide death");   // the game's own crash and score screen
+      } else if (run.hit) {
         mode = "failed";
         lastEnd = game.gameTime();
         if (!game.send("collide death")) showResult(null);
@@ -439,7 +478,7 @@
       }
       // Below the floor it was rolling on: it fell off the track.
       if (ref !== null && ball.h < ref - 1.5) run.fell = true;
-      renderHud();
+      if (!run.endless) renderHud();
     }
     run.last = { s: ball.s, x: ball.x, h: ball.h };
   });
@@ -455,6 +494,10 @@
       pending = null;
       hideScreens();
       begin(n);
+    } else if (endless) {
+      hideScreens();
+      hideHud();
+      beginEndless();
     } else {
       // A normal run (Play, or the game's own restart): not an Adventure level.
       mode = null;
@@ -468,6 +511,7 @@
     gameAt = "score";
     lastEnd = Math.max(lastEnd, game.gameTime() - 0.05);
     if (!run || mode === null) return;
+    if (run.endless) { endlessLast = { passed: run.passed }; run.parts = []; run = null; mode = null; return; }
     if (mode === "playing") mode = "failed"; // the game's own crash or a fall
     run.ended = true;
     run.parts = [];
@@ -931,7 +975,11 @@
       }
       return Math.abs(run.goalS - s) > 3;
     },
-    handlesRun: function () { return !!run && mode !== null; },
+    handlesRun: function () { return !!run && mode !== null && !run.endless; },
+    // Advanced mode: normal runs get endless obstacles while this is on.
+    setEndless: function (on) { endless = !!on; },
+    // Obstacles passed in this Advanced run (or the last one, after it ends).
+    dodged: function () { return run && run.endless ? run.passed : endlessLast ? endlessLast.passed : 0; },
     // The obstacles on the track now (slope coordinates; for tools and tests).
     obstacles: function () {
       return run ? run.parts.map(function (p) {

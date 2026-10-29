@@ -26,6 +26,12 @@
     return Math.round(seconds) + "s";
   }
 
+  function fmtDuration(seconds) {
+    seconds = Math.round(seconds || 0);
+    var m = Math.floor(seconds / 60);
+    return m ? m + "m " + ("0" + (seconds % 60)).slice(-2) + "s" : seconds + "s";
+  }
+
   function xpCells(cls) {
     var html = "";
     for (var i = 0; i < XP_CELLS; i++) html += '<span class="' + cls + '"></span>';
@@ -46,6 +52,37 @@
     ["total", "Total score"],
     ["gems", "Gems"],
     ["playSeconds", "Time played"]
+  ];
+
+  // Per game mode (modes.js), and everything else worth counting.
+  var MODE_STATS = [["classic", "Classic"], ["randomizer", "Randomizer"], ["advanced", "Advanced"]];
+  function count(list) { return list ? list.length : 0; }
+  var MORE_STATS = [
+    ["Gems collected", function (p) { return fmt(p.gemsTotal); }],
+    ["Golden gems", function (p) { return fmt(p.goldTotal); }],
+    ["Gems spent", function (p) { return fmt(p.spent); }],
+    ["Most gems in a run", function (p) { return fmt(p.bestGems); }],
+    ["Gem multiplier", function () {
+      var m = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (window.SlopeMerge ? window.SlopeMerge.boost() : 1);
+      return "x" + m.toFixed(2);
+    }],
+    ["Total XP", function (p) { return fmt(p.xp); }],
+    ["Longest run", function (p) { return fmtDuration(p.longestRun); }],
+    ["Average run", function (p) { return fmtDuration(p.runs ? p.playSeconds / p.runs : 0); }],
+    ["Adventure wins", function (p) { return fmt(p.advWins); }],
+    ["Best Adventure level", function (p) { return p.advUnlocked > 1 ? fmt(p.advUnlocked - 1) : "None"; }],
+    ["Best merge ball", function (p) { return p.merge.best ? "Level " + fmt(p.merge.best) : "None"; }],
+    ["Merges", function (p) { return fmt(p.merge.made); }],
+    ["Ball skins", function (p) {
+      var all = window.SlopeShop ? count(window.SlopeShop.skins) : 0;
+      return (1 + count(p.skins)) + "/" + all + (p.merge.best ? " +" + p.merge.best + " secret" : "");
+    }],
+    ["Backgrounds", function (p) { return (1 + count(p.backgrounds)) + "/" + (window.SlopeBackgrounds ? count(window.SlopeBackgrounds.list) : 0); }],
+    ["Slope styles", function (p) {
+      var all = window.SlopeSlopes ? count(window.SlopeSlopes.track) + count(window.SlopeSlopes.pillars) : 0;
+      return (2 + count(p.slopes)) + "/" + all;
+    }],
+    ["Upgrades", function (p) { return fmt(count(p.upgrades)); }]
   ];
 
   function build(ui) {
@@ -81,6 +118,27 @@
             return '<div class="slope-stat"><dt>' + s[1] + '</dt><dd data-stat="' + s[0] + '">0</dd></div>';
           }).join("") +
         "</dl>" +
+        '<section class="slope-stat-group" aria-labelledby="slope-modes-label">' +
+          '<p class="slope-label" id="slope-modes-label">Modes</p>' +
+          '<div class="slope-mode-stats">' +
+            MODE_STATS.map(function (m) {
+              return '<dl class="slope-mode-stat" data-mode="' + m[0] + '"><p class="slope-mode-stat-name">' + m[1] + "</p>" +
+                '<div><dt>Runs</dt><dd data-k="runs">0</dd></div>' +
+                '<div><dt>Best</dt><dd data-k="best">0</dd></div>' +
+                '<div><dt>Average</dt><dd data-k="average">0</dd></div>' +
+                (m[0] === "advanced" ? '<div><dt>Obstacles passed</dt><dd data-k="dodged">0</dd></div>' : "") +
+              "</dl>";
+            }).join("") +
+          "</div>" +
+        "</section>" +
+        '<section class="slope-stat-group" aria-labelledby="slope-more-label">' +
+          '<p class="slope-label" id="slope-more-label">More stats</p>' +
+          '<dl class="slope-stats slope-stats-more">' +
+            MORE_STATS.map(function (s, i) {
+              return '<div class="slope-stat"><dt>' + s[0] + '</dt><dd data-more="' + i + '">0</dd></div>';
+            }).join("") +
+          "</dl>" +
+        "</section>" +
         '<section class="slope-recent" aria-labelledby="slope-recent-label">' +
           '<p class="slope-label" id="slope-recent-label">Recent runs</p>' +
           '<div class="slope-bars"></div>' +
@@ -166,6 +224,18 @@
       dd.textContent = s[0] === "playSeconds" ? fmtTime(p.playSeconds) : fmt(p[s[0]]);
     });
 
+    MODE_STATS.forEach(function (m) {
+      var st = p.modes[m[0]], box = els.screen.querySelector('[data-mode="' + m[0] + '"]');
+      box.querySelector('[data-k="runs"]').textContent = fmt(st.runs);
+      box.querySelector('[data-k="best"]').textContent = fmt(st.best);
+      box.querySelector('[data-k="average"]').textContent = st.runs ? fmt(st.total / st.runs) : "0";
+      var d = box.querySelector('[data-k="dodged"]');
+      if (d) d.textContent = fmt(st.dodged);
+    });
+    MORE_STATS.forEach(function (s, i) {
+      els.screen.querySelector('[data-more="' + i + '"]').textContent = s[1](p);
+    });
+
     renderRecent(p.recent);
   }
 
@@ -228,7 +298,7 @@
 
   game.on("runend", function (e) {
     var run = window.SlopeGems ? window.SlopeGems.currentRun() : { gems: 0, seconds: 0 };
-    var result = profile.recordRun({ score: e.score, gems: run.gems, seconds: run.seconds });
+    var result = profile.recordRun({ score: e.score, gems: run.gems, golds: run.golds, seconds: run.seconds });
     // Adventure levels show their own result screen.
     var adventure = window.SlopeAdventure && window.SlopeAdventure.handlesRun();
     if (els.toast && !adventure) showRunSummary(e.score, result, run.gems);

@@ -180,6 +180,63 @@
   overflow-wrap: anywhere;
 }
 
+/* Modes and more stats: smaller tiles under the main ones. */
+.slope-stat-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slope-mode-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.slope-mode-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 14px;
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+}
+
+.slope-mode-stat-name {
+  font-family: var(--slope-display);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.slope-mode-stat div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.slope-mode-stat dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-stats-more {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.slope-stats-more .slope-stat {
+  padding: 10px 12px;
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+}
+
+.slope-stats-more .slope-stat dt {
+  font-size: 12px;
+}
+
+.slope-stats-more .slope-stat dd {
+  font-size: 20px;
+}
+
 .slope-recent {
   display: flex;
   flex-direction: column;
@@ -309,8 +366,13 @@
 }
 
 @media (max-width: 520px) {
-  .slope-stats {
+  .slope-stats,
+  .slope-stats-more {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .slope-mode-stats {
+    grid-template-columns: 1fr;
   }
 }
 

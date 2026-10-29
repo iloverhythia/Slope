@@ -8,6 +8,7 @@
  *   #slope-career         the Career menu button was pressed
  *   #slope-adventure      the Adventure menu button was pressed
  *   #slope-shop           the Shop menu button was pressed
+ *   #slope-play           the Play menu button was pressed (the page picks a mode, then starts the run)
  *   #slope-menu           the main menu is shown
  *
  * The page can also send events to the game's EventManager state machine
@@ -40,6 +41,7 @@
  *   SlopeGame.inRun()              true while a run is going
  *   SlopeGame.gameTime()           seconds on the game's clock (slower than real time on slow frames)
  *   SlopeGame.pause(reason) / resume(reason) / paused()
+ *   SlopeGame.setTimeScale(k) / timeScale() / realNow()   slow motion and fast forward
  *   SlopeGame.on("scene", fn, wants)  wants(): anything to draw this frame?
  *   SlopeGame.on("scene", function ({ gl, vp }) { ... })   WebGL2 only
  *   SlopeGame.paintBall(function ({ gl, vp, o2w, draw }) { ... return true; })
@@ -93,13 +95,13 @@
   function readSignal(e) {
     var url = e && e.newURL ? e.newURL : location.href;
     var hash = url.indexOf("#") === -1 ? "" : url.slice(url.indexOf("#"));
-    var m = /^#slope-(run-start|career|adventure|shop|menu|score-(\d+))$/.exec(hash);
+    var m = /^#slope-(run-start|career|adventure|shop|play|menu|score-(\d+))$/.exec(hash);
     if (!m) return;
     if (/^#slope-/.test(location.hash)) clearHash();
     if (m[1] === "run-start") {
       inRun = true;
       emit("runstart");
-    } else if (m[1] === "career" || m[1] === "adventure" || m[1] === "shop" || m[1] === "menu") {
+    } else if (m[1] === "career" || m[1] === "adventure" || m[1] === "shop" || m[1] === "play" || m[1] === "menu") {
       emit(m[1]);
     } else if (inRun) {
       // A crash followed by a fall reports the score twice: count the run once.
@@ -739,6 +741,25 @@
     } catch (e) { console.warn("Slope: can't pause the game", e); }
   }
 
+  // Time scale (slow motion and fast forward): Unity times its frames with
+  // performance.now(), so the page hands it a clock that runs at `timeScale`
+  // times real time. Page code reading performance.now() follows the same
+  // clock, so whatever moves with the game slows down with it.
+  var realNow = performance.now.bind(performance);
+  var timeScale = 1, scaledBase = realNow(), realBase = scaledBase;
+  function scaledNow() { return scaledBase + (realNow() - realBase) * timeScale; }
+  try {
+    performance.now = scaledNow;
+  } catch (e) {
+    console.warn("Slope: can't change the game's speed", e);
+  }
+  function setTimeScale(k) {
+    k = Math.max(0.1, Math.min(4, +k || 1));
+    scaledBase = scaledNow();
+    realBase = realNow();
+    timeScale = k;
+  }
+
   // Only frames the game draws count, so a paused game's clock stands still.
   var gameTime = 0, lastFrameTime = null;
   var raf = window.requestAnimationFrame;
@@ -756,7 +777,7 @@
       } finally {
         if (gameDrew && time !== lastFrameTime) {
           if (lastFrameTime !== null) {
-            gameTime += Math.min(Math.max(0, time - lastFrameTime) / 1000, 1 / 3);
+            gameTime += Math.min(Math.max(0, time - lastFrameTime) / 1000 * timeScale, 1 / 3);
             frameMs += (Math.min(200, Math.max(0, time - lastFrameTime)) - frameMs) * 0.1;
           }
           lastFrameTime = time;
@@ -788,6 +809,10 @@
     },
     inRun: function () { return inRun; },
     gameTime: function () { return gameTime; },
+    // Game speed: 1 is normal, 0.5 half speed. realNow() is the wall clock.
+    setTimeScale: setTimeScale,
+    timeScale: function () { return timeScale; },
+    realNow: realNow,
     // Pause the game while the page covers it (shop, career); resumes when
     // every reason to pause is gone.
     pause: function (reason) { pauseReasons[reason] = true; applyPause(); },

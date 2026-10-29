@@ -16,6 +16,7 @@ import patch_steering
 import patch_menu
 import patch_skin
 import patch_sound
+import patch_play
 
 def main(path):
     files = webdata.read(open(path, 'rb').read())
@@ -34,7 +35,8 @@ def main(path):
         elif key == ('level0', 283):
             data, log = patch_menu.patch(o.get_raw_data())
             data, log2 = patch_menu.patch_more(data)
-            o.set_raw_data(data); print('EventManager', log + log2)
+            data, log3 = patch_play.patch(data)
+            o.set_raw_data(data); print('EventManager', log + log2 + log3)
         elif key == ('sharedassets0.assets', 448):
             data, log = patch_skin.patch(o.get_raw_data()); o.set_raw_data(data); print('RetroGUISkin', log)
         elif key in (patch_sound.IMAGE, patch_sound.BUTTON):
