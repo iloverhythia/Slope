@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Artifact"
+    ],
+    "ask": [
+      "Artifact(action:delete)"
+    ]
+  }
+}
