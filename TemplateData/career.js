@@ -144,6 +144,7 @@
           '<div class="slope-bars"></div>' +
         "</section>" +
         '<p class="slope-account-error" role="status" hidden></p>' +
+        '<p class="slope-account-details" hidden></p>' +
         '<div class="slope-career-actions">' +
           '<button type="button" class="slope-btn slope-login" hidden>Log in with Claude</button>' +
           '<button type="button" class="slope-btn slope-open-shop" hidden>Skin shop</button>' +
@@ -176,6 +177,7 @@
       xpNext: screen.querySelector(".slope-xp-next"),
       bars: screen.querySelector(".slope-bars"),
       error: screen.querySelector(".slope-account-error"),
+      details: screen.querySelector(".slope-account-details"),
       login: screen.querySelector(".slope-login"),
       back: screen.querySelector(".slope-back"),
       shop: screen.querySelector(".slope-open-shop"),
@@ -212,6 +214,9 @@
     els.login.textContent = account.busy ? "Logging in..." : "Log in with Claude";
     els.error.hidden = !account.error;
     els.error.textContent = account.error || "";
+    // What the login saw, step by step: small, for a screenshot if it keeps failing.
+    els.details.hidden = !account.error || !account.details;
+    els.details.textContent = account.details ? "Details: " + account.details : "";
 
     fillCells(els.bar, p.levelXp / p.levelNeed);
     els.bar.setAttribute("aria-valuemax", String(p.levelNeed));

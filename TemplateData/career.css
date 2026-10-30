@@ -288,6 +288,15 @@
   text-align: center;
 }
 
+.slope-account-details {
+  margin-top: -10px !important;
+  color: var(--slope-dim);
+  font-size: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.slope-account-details[hidden],
 .slope-account-error[hidden] {
   display: none;
 }

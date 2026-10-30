@@ -56,8 +56,28 @@
     busy: false,
     name: "",
     avatarUrl: "",
-    error: ""
+    error: "",
+    details: ""      // what the last failed login saw, step by step (shown small under the error)
   };
+
+  // Claude login only works while claude.ai shows the page (framed in its
+  // viewer); opened on its own, in a separate tab of the artifact's own
+  // address, every capability is missing.
+  var framed = (function () { try { return window.top !== window.self; } catch (e) { return true; } })();
+  var steps = [];
+  function note(step) { steps.push(step); }
+
+  // A capability, noting how it went and how long it took.
+  function useCap(name) {
+    var t0 = Date.now();
+    return window.claude.use(name).then(function (ns) {
+      note(name + (ns ? " ok" : " missing") + " " + ((Date.now() - t0) / 1000).toFixed(1) + "s");
+      return ns;
+    }, function (e) {
+      note(name + " error " + ((e && (e.code || e.message)) || e));
+      return null;
+    });
+  }
 
   function blank() {
     return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0,
@@ -442,8 +462,7 @@
   function fail(code) { var e = new Error(code); e.code = code; return e; }
 
   function connect() {
-    var claude = window.claude;
-    return Promise.all([claude.use("user"), claude.use("db")]).then(function (caps) {
+    return Promise.all([useCap("user"), useCap("db")]).then(function (caps) {
       var user = caps[0], db = caps[1];
       if (!user || !db) throw fail("unavailable");
       return Promise.all([user.id(), user.me()]).then(function (who) {
@@ -478,40 +497,65 @@
     });
   }
 
+  var connecting = null;   // one login at a time
+
   function signIn() {
     if (!account.available || account.signedIn || account.busy) return Promise.resolve();
     account.busy = true;
     account.error = "";
+    account.details = "";
+    steps = [framed ? "framed" : "own page"];
     changed();
-    return window.claude.use("permissions").then(function (perms) {
+    return useCap("permissions").then(function (perms) {
       return perms ? perms.request(["user", "db"]) : null;
     }).then(function (states) {
+      if (states) note("allowed: user " + states.user + ", db " + states.db);
       if (states && (states.user === "denied" || states.db === "denied")) throw fail("denied");
-      if (states && (states.user === "unavailable" || states.db === "unavailable")) throw fail("unavailable");
-      return connect();
+      // Anything else: just try (what the store answers is what counts).
+      return connecting || connect();
     }).catch(function (e) {
       var code = (e && e.code) || "error";
+      if (code !== "denied" && code !== "unavailable") note("failed: " + code);
       account.error = code === "denied"
         ? "Login was not allowed. You can turn it on in the artifact's Permissions menu."
-        : code === "unavailable" || code === "not_granted" || code === "capability_disabled"
-          ? "Logging in with Claude isn't available here. Open the game on claude.ai to log in; until then progress is saved on this device."
-          : "Couldn't log in with Claude just now (" + code + "). Your progress is saved on this device; try again in a moment.";
-      console.warn("Slope profile: login failed", code, e);
+        : code === "unavailable" && !framed
+          ? "Claude login only works on the game's claude.ai page, not when the game is open in a tab of its own. Your progress is saved on this device."
+          : code === "unavailable" || code === "not_granted" || code === "capability_disabled"
+            ? "Claude didn't let the game use your account this time. Reload the page and try again; until then your progress is saved on this device."
+            : "Couldn't log in with Claude just now. Your progress is saved on this device; try again in a moment.";
+      account.details = steps.join(" \u00b7 ");
+      console.warn("Slope profile: login failed", code, account.details);
     }).then(function () {
       account.busy = false;
       changed();
     });
   }
 
-  // Log back in without asking when the viewer already allowed it.
-  if (account.available) {
-    window.claude.use("permissions").then(function (perms) {
-      if (!perms) return null;
-      return perms.state();
+  // Log back in without asking when the viewer already allowed it: once the
+  // game has loaded (its first menu), so the page isn't busy starting the
+  // game while Claude answers.
+  function autoLogin() {
+    if (!account.available || account.signedIn || account.busy) return;
+    steps = [framed ? "framed" : "own page", "auto"];
+    useCap("permissions").then(function (perms) {
+      return perms ? perms.state() : null;
     }).then(function (states) {
-      if (states && states.user === "granted" && states.db === "granted") return connect();
+      if (states) note("allowed: user " + states.user + ", db " + states.db);
+      if (states && states.user === "granted" && states.db === "granted" && !account.signedIn && !account.busy) {
+        connecting = connect();
+        return connecting;
+      }
       return null;
-    }).catch(function () {});
+    }).catch(function (e) {
+      note("auto failed: " + ((e && e.code) || e));
+    }).then(function () { connecting = null; });
+  }
+
+  if (account.available && framed) {
+    var autoDone = false;
+    var autoGo = function () { if (autoDone) return; autoDone = true; setTimeout(autoLogin, 300); };
+    if (window.SlopeGame) window.SlopeGame.on("menu", autoGo);
+    setTimeout(autoGo, 30000);   // if the menu signal never comes
   }
 
   window.SlopeProfile = {
