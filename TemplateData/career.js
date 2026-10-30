@@ -55,7 +55,7 @@
   ];
 
   // Per game mode (modes.js), and everything else worth counting.
-  var MODE_STATS = [["classic", "Classic"], ["randomizer", "Randomizer"], ["advanced", "Advanced"]];
+  var MODE_STATS = [["classic", "Classic"], ["randomizer", "Randomizer"], ["advanced", "Advanced"], ["rush", "Gem Rush"], ["legacy", "Legacy"]];
   function count(list) { return list ? list.length : 0; }
   var MORE_STATS = [
     ["Gems collected", function (p) { return fmt(p.gemsTotal); }],
@@ -124,8 +124,8 @@
             MODE_STATS.map(function (m) {
               return '<dl class="slope-mode-stat" data-mode="' + m[0] + '"><p class="slope-mode-stat-name">' + m[1] + "</p>" +
                 '<div><dt>Runs</dt><dd data-k="runs">0</dd></div>' +
-                '<div><dt>Best</dt><dd data-k="best">0</dd></div>' +
-                '<div><dt>Average</dt><dd data-k="average">0</dd></div>' +
+                '<div><dt>' + (m[0] === "rush" ? "Most gems" : "Best") + '</dt><dd data-k="best">0</dd></div>' +
+                '<div><dt>' + (m[0] === "rush" ? "Average gems" : "Average") + '</dt><dd data-k="average">0</dd></div>' +
                 (m[0] === "advanced" ? '<div><dt>Obstacles passed</dt><dd data-k="dodged">0</dd></div>' : "") +
               "</dl>";
             }).join("") +

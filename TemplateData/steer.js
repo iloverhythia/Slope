@@ -4,9 +4,6 @@
  *
  *   mirror   left is right and right is left (the Randomizer's Mirror)
  *   ice      a turn goes on for a moment after the key is let go (ice slopes)
- *   wind     the ball drifts one way while you aren't steering: the game
- *            hears that key for one of every few frames it draws (a gentle
- *            drift, never a shove, and never against a key you hold)
  *
  * While no filter is on, the keys go straight to the game. While one is on,
  * the real keys are caught before the game sees them, and the game hears
@@ -19,9 +16,8 @@
  *
  *   SlopeSteer.mirror(on)
  *   SlopeSteer.ice(seconds)       how long a turn goes on after its key is let go (0: off)
- *   SlopeSteer.wind(dir, share)   dir -1 (left) or 1 (right); share of frames it pushes (0: off)
  *   SlopeSteer.reset()            every filter off
- *   SlopeSteer.state()            { mirror, ice, wind, share, held: { left, right }, out: { left, right } }
+ *   SlopeSteer.state()            { mirror, ice, held: { left, right }, out: { left, right } }
  */
 (function () {
   "use strict";
@@ -30,14 +26,13 @@
   var CODE = { ArrowLeft: ["ArrowLeft", 37], ArrowRight: ["ArrowRight", 39], a: ["KeyA", 65], A: ["KeyA", 65],
     q: ["KeyQ", 81], Q: ["KeyQ", 81], d: ["KeyD", 68], D: ["KeyD", 68] };
 
-  var filters = { mirror: false, ice: 0, wind: 0, share: 0 };
+  var filters = { mirror: false, ice: 0 };
   var held = {};               // real keys the player holds: key -> true
   var out = { left: false, right: false };   // what the game holds while a filter is on
   var slide = { left: 0, right: 0 };        // ice: a turn goes on until then
   var was = { left: false, right: false };  // the player's turn last tick (after the mirror)
   var on = false;              // a filter is on: keys are caught
   var ticking = false;
-  var frameNo = 0;             // frames the game has drawn (wind pushes on some of them)
 
   function clock() {
     var game = window.SlopeGame;
@@ -89,11 +84,6 @@
     } else {
       was = { left: left, right: right };
     }
-    // The wind only pushes a ball nobody is steering: your keys always win.
-    if (filters.share > 0 && !left && !right && frameNo % Math.max(2, Math.round(1 / filters.share)) === 0) {
-      left = filters.wind < 0;
-      right = filters.wind > 0;
-    }
     return { left: left, right: right };
   }
 
@@ -104,23 +94,16 @@
     setOut("right", w.right);
   }
 
-  // Ice runs on the clock (between frames too); the wind on the game's frames.
+  // Ice runs on the clock, between key presses too.
   function tick() {
     if (!on || !filters.ice) { ticking = false; return; }
     update();
     requestAnimationFrame(tick);
   }
 
-  if (window.SlopeGame) {
-    window.SlopeGame.on("frame", function () {
-      frameNo++;
-      if (on && filters.share > 0) update();
-    });
-  }
-
   // Filters changed: hand the keys over between the player and the page.
   function apply() {
-    var want = filters.mirror || filters.ice > 0 || filters.share > 0;
+    var want = filters.mirror || filters.ice > 0;
     if (want && !on) {
       // The game holds the player's real keys: let them go, then steer for them.
       Object.keys(held).forEach(function (k) { send("keyup", k); });
@@ -163,15 +146,9 @@
   window.SlopeSteer = {
     mirror: function (v) { filters.mirror = !!v; apply(); },
     ice: function (seconds) { filters.ice = Math.max(0, +seconds || 0); apply(); },
-    wind: function (dir, share) {
-      filters.wind = dir < 0 ? -1 : 1;
-      filters.share = Math.max(0, Math.min(0.5, +share || 0));
-      apply();
-    },
-    reset: function () { filters = { mirror: false, ice: 0, wind: 0, share: 0 }; apply(); },
+    reset: function () { filters = { mirror: false, ice: 0 }; apply(); },
     state: function () {
-      return { mirror: filters.mirror, ice: filters.ice, wind: filters.wind, share: filters.share,
-        held: heldSides(), out: { left: out.left, right: out.right } };
+      return { mirror: filters.mirror, ice: filters.ice, held: heldSides(), out: { left: out.left, right: out.right } };
     }
   };
 })();

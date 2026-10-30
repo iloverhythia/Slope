@@ -122,6 +122,22 @@
   display: none;
 }
 
+/* The bin: drop a ball on it to delete it. Lit while a ball is over it. */
+.slope-merge-trash {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  color: var(--slope-hover);
+  box-shadow: inset 0 0 0 2px var(--slope-hover);
+}
+
+.slope-merge-trash.is-over {
+  background: var(--slope-hover);
+  color: var(--slope-ground);
+}
+
 .slope-merge-side {
   display: flex;
   flex-direction: column;

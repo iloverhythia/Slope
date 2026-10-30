@@ -38,6 +38,7 @@
  *
  *   SlopeGame.on("runstart" | "runend" | "career" | "adventure" | "shop" | "menu" | "frame", handler)
  *   SlopeGame.send(eventName)      send an event to the game's EventManager
+ *   SlopeGame.sendTo(object, eventName)   to another object's FSMs (e.g. "ControlManager", "LegacySteerOn")
  *   SlopeGame.inRun()              true while a run is going
  *   SlopeGame.gameTime()           seconds on the game's clock (slower than real time on slow frames)
  *   SlopeGame.pause(reason) / resume(reason) / paused()
@@ -795,18 +796,22 @@
     });
   };
 
+  // An event for the PlayMaker FSMs on one of the game's objects.
+  function sendTo(objectName, eventName) {
+    var instance = window.gameInstance;
+    if (!instance || !instance.Module || !instance.Module.SendMessage) return false;
+    try {
+      instance.SendMessage(objectName, "SendEvent", eventName);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   window.SlopeGame = {
     on: on,
-    send: function (eventName) {
-      var instance = window.gameInstance;
-      if (!instance || !instance.Module || !instance.Module.SendMessage) return false;
-      try {
-        instance.SendMessage("EventManager", "SendEvent", eventName);
-        return true;
-      } catch (e) {
-        return false;
-      }
-    },
+    send: function (eventName) { return sendTo("EventManager", eventName); },
+    sendTo: sendTo,
     inRun: function () { return inRun; },
     gameTime: function () { return gameTime; },
     // Game speed: 1 is normal, 0.5 half speed. realNow() is the wall clock.

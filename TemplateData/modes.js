@@ -11,9 +11,17 @@
  *   Advanced     every obstacle and slope from the Adventure levels,
  *                endlessly, closer and quicker the further the ball gets
  *                (adventure.js)
+ *   Gem Rush     60 seconds to grab as many gems as you can: three times the
+ *                gems, and they fly to the ball (gems.js reads that from
+ *                active()); the run ends when time is up, and its best is
+ *                counted in gems
+ *   Legacy       the original game's steering: a push that builds up sideways
+ *                speed, which the ball keeps after the key is let go (states
+ *                in the game's ControlManager, tools/patch_legacy.py, switched
+ *                on with LegacySteerOn at the start of the run)
  *
  *   SlopeModes.current()        the mode of the run being played
- *   SlopeModes.active(effect)   true while a Randomizer effect is on
+ *   SlopeModes.active(effect)   true while a Randomizer effect is on (or Gem Rush's gem rain and magnet)
  *   SlopeModes.open(from)       shows the picker
  */
 (function () {
@@ -27,7 +35,9 @@
   var MODES = [
     { id: "classic", name: "Classic", text: "The original: the slope, your ball and nothing else in the way." },
     { id: "randomizer", name: "Randomizer", text: "Every few seconds a random effect for a short while. Some help you, some get in your way." },
-    { id: "advanced", name: "Advanced", text: "Every obstacle and slope from the Adventure levels, all the way down: closer together and quicker the further you get." }
+    { id: "advanced", name: "Advanced", text: "Every obstacle and slope from the Adventure levels, all the way down: closer together and quicker the further you get." },
+    { id: "rush", name: "Gem Rush", text: "60 seconds to grab every gem you can. Three times the gems, and they fly to you." },
+    { id: "legacy", name: "Legacy", text: "The original steering: the ball picks up speed sideways while you hold a key, and keeps sliding when you let go." }
   ];
 
   var EFFECTS = [
@@ -43,6 +53,7 @@
     { id: "blur", name: "Blur", text: "Where are your glasses?", good: false, seconds: 5 }
   ];
   var FIRST_EFFECT = 5;           // seconds into the run
+  var RUSH_SECONDS = 60;          // a Gem Rush run
   var GAP = [3, 6];               // seconds between effects
   var JACKPOT_GEMS = 15;
 
@@ -109,6 +120,60 @@
     if (fx.on) { updateBanner(); updateLook(); }
   });
 
+  // --- Gem Rush -----------------------------------------------------------------
+  // The same clock as the effects: run time on the wall clock. When it runs
+  // out, the run ends the game's own way (and its score screen shows).
+
+  var rush = { clock: 0, last: null, over: false };
+
+  game.on("frame", function () {
+    if (current !== "rush" || !game.inRun() || rush.over) return;
+    var now = game.realNow() / 1000;
+    if (rush.last !== null) rush.clock += Math.min(0.25, now - rush.last);
+    rush.last = now;
+    var left = Math.max(0, RUSH_SECONDS - rush.clock);
+    showRush(left);
+    if (left <= 0) {
+      rush.over = true;
+      game.send("collide death");
+    }
+  });
+
+  function rushGems() { return window.SlopeGems ? window.SlopeGems.currentRun().gems : 0; }
+
+  function showRush(left) {
+    if (!banner) return;
+    banner.classList.remove("is-bad");
+    banner.querySelector(".slope-effect-name").textContent = left > 0 ? "Gem Rush" : "Time's up!";
+    banner.querySelector(".slope-effect-text").textContent = "+" + rushGems() + " gems" + (left > 0 ? "  \u00b7  " + Math.ceil(left) + " s left" : "");
+    banner.querySelector(".slope-effect-bar span").style.transform = "scaleX(" + (left / RUSH_SECONDS).toFixed(3) + ")";
+    banner.hidden = false;
+  }
+
+  // --- Legacy -------------------------------------------------------------------
+  // The game starts every run with its instant steering; a Legacy run switches
+  // to the original steering at once, and again a moment later in case the
+  // game's own reset came after (only while no steering key is held, as the
+  // switch waits for a fresh key press).
+
+  var legacyTimers = [], legacyOn = false;
+  function setLegacy(on) {
+    legacyTimers.forEach(clearTimeout);
+    legacyTimers = [];
+    if (!on && !legacyOn) return;
+    legacyOn = on;
+    var event = on ? "LegacySteerOn" : "LegacySteerOff";
+    game.sendTo("ControlManager", event);
+    if (on) {
+      [250, 700].forEach(function (ms) {
+        legacyTimers.push(setTimeout(function () {
+          var steer = window.SlopeSteer && window.SlopeSteer.state();
+          if (current === "legacy" && !(steer && (steer.held.left || steer.held.right))) game.sendTo("ControlManager", event);
+        }, ms));
+      });
+    }
+  }
+
   // Mirrored steering: the game hears the opposite key (steer.js).
   function mirror(on) {
     if (window.SlopeSteer) window.SlopeSteer.mirror(on);
@@ -171,8 +236,11 @@
   // decided whether the run is an Adventure level.)
   game.on("runstart", function () {
     stopRandomizer();
+    hideBanner();
+    rush = { clock: 0, last: null, over: false };
     // An Adventure level is its own thing; anything else plays the chosen mode.
     current = adventureRun() ? null : chosen;
+    setLegacy(current === "legacy");
     fx.clock = 0;
     fx.last = null;
     fx.previous = null;
@@ -182,12 +250,14 @@
   game.on("runend", function (e) {
     var mode = current;
     stopRandomizer();
+    hideBanner();   // the run summary shows in its place
     if (mode && profile.recordModeRun) {
       var dodged = mode === "advanced" && window.SlopeAdventure && window.SlopeAdventure.dodged ? window.SlopeAdventure.dodged() : 0;
-      profile.recordModeRun(mode, e ? e.score : 0, { dodged: dodged });
+      // A Gem Rush counts the gems it got; the other modes their score.
+      profile.recordModeRun(mode, mode === "rush" ? rushGems() : e ? e.score : 0, { dodged: dodged });
     }
   });
-  game.on("menu", function () { stopRandomizer(); });
+  game.on("menu", function () { stopRandomizer(); hideBanner(); });
 
   function choose(id) {
     chosen = byId(MODES, id).id;
@@ -265,7 +335,9 @@
     var stats = profile.get().modes || {};
     els.cards.forEach(function (c) {
       var s = stats[c.mode.id];
-      c.best.textContent = s && s.runs ? "Best " + s.best + "  ·  " + s.runs + (s.runs === 1 ? " run" : " runs") : "Not played yet";
+      c.best.textContent = s && s.runs
+        ? "Best " + s.best + (c.mode.id === "rush" ? " gems" : "") + "  \u00b7  " + s.runs + (s.runs === 1 ? " run" : " runs")
+        : "Not played yet";
     });
   }
 
@@ -304,7 +376,8 @@
 
   // --- Previews ----------------------------------------------------------------------
   // The track drawn in perspective, rushing towards the viewer, with the ball
-  // weaving along it; Randomizer flashes its effects, Advanced brings obstacles.
+  // weaving along it; Randomizer flashes its effects, Advanced brings
+  // obstacles, Gem Rush a stream of gems and its countdown.
 
   var NEON = "#00ff00", RED = "#ff1a10";
   var reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
@@ -365,18 +438,34 @@
       }
       weave = Math.sin(t * 2.4) * 0.5;
     }
-    // Randomizer: gem rain, a dark veil, then the effect's name.
-    if (effect && (effect.id === "gemrain" || effect.id === "double" || effect.id === "magnet" || effect.id === "jackpot")) {
-      for (var g = 0; g < 9; g++) {
-        var gz = 1.3 + ((g * 1.1 - t * 2.5) % 9 + 9) % 9, gp = at(gz, ((g * 0.37) % 1.4) - 0.7);
+    // Randomizer: gem rain, a dark veil, then the effect's name. Gem Rush:
+    // gems all the way, drifting towards the ball.
+    var rushing = mode === "rush";
+    if (rushing || (effect && (effect.id === "gemrain" || effect.id === "double" || effect.id === "magnet" || effect.id === "jackpot"))) {
+      for (var g = 0; g < (rushing ? 16 : 9); g++) {
+        var gz = 1.3 + ((g * (rushing ? 0.6 : 1.1) - t * 2.5) % 9 + 9) % 9, lat = ((g * 0.37) % 1.4) - 0.7;
+        if (rushing) lat += (weave * 0.8 - lat) * Math.max(0, 1 - (gz - 1.3) / 3);   // pulled to the ball as they come close
+        var gp = at(gz, lat);
         var gs = 9 * s / gz * 2;
         x.fillStyle = NEON;
         x.beginPath(); x.moveTo(gp[0], gp[1] - gs * 2); x.lineTo(gp[0] + gs, gp[1] - gs); x.lineTo(gp[0], gp[1]); x.lineTo(gp[0] - gs, gp[1] - gs); x.closePath(); x.fill();
       }
     }
+    // Legacy: the ball swings wide and lags behind, with a trail as it slides.
+    if (mode === "legacy") weave = Math.sin(t * 1.3 - 0.6) * 0.6;
     // The ball.
     var bx = cx + weave * half * 0.8, by = H * 0.8, br = H * 0.1;
     if (effect && effect.id === "mirror") bx = cx - weave * half * 0.8;
+    if (mode === "legacy") {
+      for (var tr = 4; tr >= 1; tr--) {
+        var px = cx + Math.sin(t * 1.3 - 0.6 - tr * 0.12) * 0.6 * half * 0.8;
+        x.globalAlpha = 0.12 * (5 - tr);
+        x.strokeStyle = NEON;
+        x.lineWidth = 2 * s;
+        x.beginPath(); x.arc(px, by, br, 0, Math.PI * 2); x.stroke();
+      }
+      x.globalAlpha = 1;
+    }
     x.fillStyle = "#000";
     x.beginPath(); x.arc(bx, by, br, 0, Math.PI * 2); x.fill();
     x.strokeStyle = NEON;
@@ -390,6 +479,23 @@
       x.fillStyle = v; x.fillRect(0, 0, W, H);
     }
     x.restore();
+    if (mode === "legacy") {
+      x.save();
+      x.font = (18 * s) + 'px "Slope Chargen", monospace';
+      x.textAlign = "center";
+      x.fillStyle = NEON;
+      x.fillText("Original steering", W / 2, 24 * s);
+      x.restore();
+    }
+    if (rushing) {
+      // The countdown, looping.
+      x.save();
+      x.font = (18 * s) + 'px "Slope Chargen", monospace';
+      x.textAlign = "center";
+      x.fillStyle = NEON;
+      x.fillText("0:" + ("0" + (59 - Math.floor(t * 4) % 60)).slice(-2), W / 2, 24 * s);
+      x.restore();
+    }
     if (effect) {
       x.save();
       if (effect.id === "blur") { x.filter = "blur(" + (2 * s) + "px)"; x.drawImage(cv, 0, 0); x.filter = "none"; }
@@ -406,7 +512,10 @@
   window.SlopeModes = {
     current: function () { return current; },
     chosen: function () { return chosen; },
-    active: function (id) { return current === "randomizer" && effectActive(id); },
+    active: function (id) {
+      if (current === "rush") return !rush.over && game.inRun() && (id === "gemrain" || id === "magnet");
+      return current === "randomizer" && effectActive(id);
+    },
     // Starts an effect now, in a Randomizer run (for tools and tests).
     trigger: function (id) {
       if (current !== "randomizer" || !game.inRun()) return false;

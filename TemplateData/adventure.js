@@ -12,11 +12,10 @@
  *
  * Some stretches of track are other kinds of slope, with their own floor:
  * a narrow winding trench, lava with a safe path through it, boost (the game
- * speeds up), ice (turns slide on after the key is let go) and wind (the
- * ball drifts sideways while it isn't steered; steer.js changes what the game
- * hears from the keys).
+ * speeds up) and ice (turns slide on after the key is let go; steer.js
+ * changes what the game hears from the keys).
  *
- * Levels 1 to 18 bring in one new obstacle or slope each; after that every
+ * Levels 1 to 17 bring in one new obstacle or slope each; after that every
  * level mixes two or three obstacles and often a slope or two, and they get
  * quicker and a little denser.
  *
@@ -39,7 +38,7 @@
  *   SlopeAdventure.setEndless(on) Advanced mode: normal runs get endless obstacles
  *   SlopeAdventure.dodged()      obstacles passed in the Advanced run
  *   SlopeAdventure.obstacles()   the obstacles on the track now
- *   SlopeAdventure.slope()       the slope the ball is on ("normal", "narrow", "lava", "boost", "ice", "wind")
+ *   SlopeAdventure.slope()       the slope the ball is on ("normal", "narrow", "lava", "boost", "ice")
  *   SlopeAdventure.zones()       the run's stretches of other slopes (slope coordinates)
  */
 (function () {
@@ -105,13 +104,12 @@
     narrow: { name: "Narrow slope", short: "Narrow", text: "Stay in the winding trench", path: true },
     lava: { name: "Lava slope", short: "Lava", text: "Keep to the dark path", path: true },
     boost: { name: "Boost slope", short: "Boost", text: "Everything speeds up" },
-    ice: { name: "Ice slope", short: "Ice", text: "Turns slide on after you let go" },
-    wind: { name: "Wind slope", short: "Wind", text: "The wind drifts you sideways when you don't steer" }
+    ice: { name: "Ice slope", short: "Ice", text: "Turns slide on after you let go" }
   };
-  var SLOPE_ORDER = ["narrow", "boost", "ice", "lava", "wind"];
-  // Levels 1 to 18 each bring in one new obstacle or slope.
+  var SLOPE_ORDER = ["narrow", "boost", "ice", "lava"];
+  // Levels 1 to 17 each bring in one new obstacle or slope.
   var INTRO = ["block", "wall", "slider", "laser", "pillar", "spinner", "door", "narrow", "pendulum",
-    "dropper", "boost", "ram", "spikes", "ice", "orbiter", "slalom", "lava", "wind"];
+    "dropper", "boost", "ram", "spikes", "ice", "orbiter", "slalom", "lava"];
 
   // How far an obstacle reaches along the slope from its centre: the lanes
   // before and after it must be reachable around it.
@@ -120,12 +118,11 @@
   function depthOf(kind) { return DEPTH[kind] || 0.7; }
 
   // Floor panel looks (the fragment shader's uStyle).
-  var STYLE = { box: 0, lava: 1, boost: 2, ice: 3, wind: 4, mark: 5 };
+  var STYLE = { box: 0, lava: 1, boost: 2, ice: 3, mark: 5 };
   var PATH = { narrow: 3.6, lava: 3.0 };   // the open path through a narrow or lava slope (the ball is 1)
   var SEGMENT = 3;               // slopes are built in pieces this long
   var BOOST = 1.3;               // game speed on a boost slope
   var ICE_SLIDE = 0.2;           // seconds a turn slides on, on ice
-  var WIND_SHARE = 0.15;         // on a wind slope: the share of frames the wind pushes, when you aren't steering
 
   // Small seeded random generator (mulberry32): the same level is the same every time.
   function seeded(seed) {
@@ -195,8 +192,8 @@
     return at + gap * (0.8 + random() * 0.5) + depthOf(kind) * 1.5;
   }
 
-  // The stretches of other slopes in a level: [{ type, from, to, dir }],
-  // in metres from the start. dir: which way the wind blows.
+  // The stretches of other slopes in a level: [{ type, from, to }], in
+  // metres from the start.
   function planZones(spec, random) {
     var zones = [];
     if (!spec.slopes.length) return zones;
@@ -206,7 +203,7 @@
       var type = spec.slopes[i % spec.slopes.length], path = SLOPES[type].path;
       var len = ((path ? 40 : 60) + random() * (path ? 25 : 40)) * (intro ? 1.3 : 1);
       if (at + len > spec.length - 35) break;
-      zones.push({ type: type, from: at, to: at + len, dir: random() < 0.5 ? -1 : 1 });
+      zones.push({ type: type, from: at, to: at + len });
       at += len + (intro ? 45 + random() * 30 : 90 + random() * 70);
     }
     return zones;
@@ -496,10 +493,10 @@
     p.hx = (b - a) / 2;
   }
 
-  // A floor panel of a boost, ice or wind slope, across the whole track.
+  // A floor panel of a boost or ice slope, across the whole track.
   function slopePanel(item, s, track) {
     var z = item.zone;
-    var p = box(s, track.cx, track.hw, SEGMENT / 2, 0.01, { solid: false, lift: 0.03, style: STYLE[z.type], dir: z.dir,
+    var p = box(s, track.cx, track.hw, SEGMENT / 2, 0.01, { solid: false, lift: 0.03, style: STYLE[z.type],
       color: z.type === "boost" ? GREEN : WHITE });
     p.kind = "panel";
     p.base = track.h;
@@ -679,7 +676,7 @@
       added = true;
       if (at >= run.nextZone) {
         var type = SLOPE_ORDER[Math.floor(Math.random() * SLOPE_ORDER.length)], path = SLOPES[type].path;
-        var zone = { type: type, from: at, to: at + (path ? 40 : 60) + Math.random() * (path ? 30 : 50), dir: Math.random() < 0.5 ? -1 : 1 };
+        var zone = { type: type, from: at, to: at + (path ? 40 : 60) + Math.random() * (path ? 30 : 50) };
         run.plan.zones.push(zone);
         addZone(run.plan, zone, Math.random, spec);
         run.nextZone = zone.to + 200 + Math.random() * 150;
@@ -823,7 +820,7 @@
   });
 
   // --- Other slopes ---------------------------------------------------------------
-  // On a boost, ice or wind stretch the ball handles differently while it is
+  // On a boost or ice stretch the ball handles differently while it is
   // on it; a banner says which slope it is and how much is left.
 
   var zoneOn = null;
@@ -844,10 +841,8 @@
     var steer = window.SlopeSteer;
     if (was && was.type === "boost") game.setTimeScale(1);
     if (was && steer && was.type === "ice") steer.ice(0);
-    if (was && steer && was.type === "wind") steer.wind(was.dir, 0);
     if (zone && zone.type === "boost") game.setTimeScale(BOOST);
     if (zone && steer && zone.type === "ice") steer.ice(ICE_SLIDE);
-    if (zone && steer && zone.type === "wind") steer.wind(zone.dir, WIND_SHARE);
     if (zone) showZone(zone); else hideZone();
   }
 
@@ -978,7 +973,7 @@
 
   // Black faces and neon edges, like the game's own red blocks. Floor
   // panels (uStyle > 0) get a pattern in track units instead: lava, boost
-  // chevrons, ice, wind arrows or a landing mark. Colours keep to red, the
+  // chevrons, ice or a landing mark. Colours keep to red, the
   // game's green and greys, so the track colour setting tints them like the
   // rest of the game.
   var FRAGMENT_SHADER = [
@@ -987,7 +982,7 @@
     "in vec3 vLocal;",
     "in vec3 vNormal;",
     "uniform vec3 uHalf, uColor;",
-    "uniform float uGlow, uEdge, uStyle, uTime, uDir;",
+    "uniform float uGlow, uEdge, uStyle, uTime;",
     "uniform vec2 uOrigin;",
     "out vec4 outColor;",
     "void main() {",
@@ -1019,12 +1014,6 @@
     "    float crack = 1.0 - smoothstep(0.012, 0.03 + aq, min(l1, l2));",
     "    float shine = exp(-pow((fract((q.x + q.y) * 0.08 - uTime * 0.25) - 0.5) * 9.0, 2.0));",
     "    c = mix(vec3(0.36, 0.4, 0.42) + 0.22 * shine, vec3(0.92), crack);",
-    "  } else if (uStyle < 4.5) {", // wind: arrows blowing sideways, and streaks
-    "    float u = q.x * uDir - abs(fract(q.y * 0.4) - 0.5) * 2.0;",
-    "    float v = fract(u * 0.5 - uTime * 1.4);",
-    "    float band = smoothstep(0.0, 0.03 + aq, v) - smoothstep(0.16, 0.19 + aq, v);",
-    "    float streak = 1.0 - smoothstep(0.0, 0.02 + aq, abs(fract(q.y * 1.3 + 0.37) - 0.5) - 0.46);",
-    "    c = mix(vec3(0.02, 0.025, 0.025), vec3(0.85), max(band, streak * 0.25));",
     "  } else {", // a landing mark: brighter as the block comes down
     "    float ring = 1.0 - smoothstep(0.08, 0.1 + aq, min(e.x, e.z));",
     "    c = uColor * (0.12 + 0.3 * uGlow + ring * (0.35 + 0.65 * uGlow));",
@@ -1077,7 +1066,7 @@
     gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
     var u = {};
     ["uViewProjection", "uCentre", "uAxisX", "uAxisY", "uAxisZ", "uHalf", "uColor", "uGlow", "uEdge",
-      "uStyle", "uTime", "uDir", "uOrigin"].forEach(function (name) {
+      "uStyle", "uTime", "uOrigin"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     return { gl: gl, program: program, vao: vao, u: u };
@@ -1119,7 +1108,6 @@
       gl.uniform1f(gfx.u.uGlow, p.glow);
       gl.uniform1f(gfx.u.uEdge, p.dim ? 0.3 : 1);
       gl.uniform1f(gfx.u.uStyle, p.style || 0);
-      gl.uniform1f(gfx.u.uDir, p.dir || 1);
       gl.uniform2f(gfx.u.uOrigin, p.x, p.s);
       gl.drawArrays(gl.TRIANGLES, 0, 36);
     });
@@ -1413,8 +1401,7 @@
     if (!els.zone) return;
     var info = SLOPES[zone.type];
     els.zone.querySelector(".slope-effect-name").textContent = info.name;
-    els.zone.querySelector(".slope-effect-text").textContent =
-      zone.type === "wind" ? "The wind drifts you " + (zone.dir < 0 ? "left" : "right") + ": steer against it" : info.text;
+    els.zone.querySelector(".slope-effect-text").textContent = info.text;
     // Under the level's progress panel while it shows.
     els.zone.style.top = els.hud && !els.hud.hidden ? Math.round(els.hud.getBoundingClientRect().bottom + 8) + "px" : "";
     els.zone.hidden = false;
@@ -1447,7 +1434,7 @@
     slope: function () { return zoneOn ? zoneOn.type : "normal"; },
     zones: function () {
       return run && run.startS !== null ? (run.plan.zones || []).map(function (z) {
-        return { type: z.type, from: run.startS + z.from, to: run.startS + z.to, dir: z.dir };
+        return { type: z.type, from: run.startS + z.from, to: run.startS + z.to };
       }) : [];
     },
     // Obstacles passed in this Advanced run (or the last one, after it ends).

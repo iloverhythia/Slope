@@ -146,11 +146,15 @@
 
   // --- Secret skins ------------------------------------------------------------
   // Each ball level of the merge game (merge.js) is a skin of its own, without
-  // end: a shape and two colours picked from the level, and from level 10 a
-  // glowing rim, from 20 sparkles, with more shine every level.
+  // end: one of 14 patterns and two colours picked from the level (levels 1
+  // to 14 show each pattern once), and from level 10 a glowing rim, from 20
+  // sparkles, with more shine every level.
 
+  var SECRET_KINDS = 14;
   var SECRET_NAMES = ["Pebble", "Spark", "Ember", "Comet", "Pulse", "Nova", "Orbit", "Flare", "Quartz", "Prism",
-    "Vortex", "Nebula", "Pulsar", "Quasar", "Zenith", "Aurora", "Eclipse", "Halo", "Titan", "Infinity"];
+    "Vortex", "Nebula", "Pulsar", "Quasar", "Zenith", "Aurora", "Eclipse", "Halo", "Titan", "Infinity",
+    "Ripple", "Cinder", "Glacier", "Tempest", "Mirage", "Phantom", "Ion", "Solstice", "Meteor", "Cosmos",
+    "Starling", "Monsoon", "Obsidian", "Radiant", "Sapphire", "Thunder", "Velvet", "Wisp", "Zephyr", "Omega"];
   var ROMAN = ["", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
   var secretCache = {};
 
@@ -178,7 +182,7 @@
       secret: {
         a: a,
         b: b,
-        p: [level <= 6 ? level - 1 : Math.floor(random() * 6), 3 + Math.floor(random() * 6), Math.min(1, level / 25), level >= 10 ? Math.min(1, (level - 9) / 20) : 0],
+        p: [level <= SECRET_KINDS ? level - 1 : Math.floor(random() * SECRET_KINDS), 3 + Math.floor(random() * 6), Math.min(1, level / 25), level >= 10 ? Math.min(1, (level - 9) / 20) : 0],
         q: [level >= 20 ? 1 : 0, 0.3 + random() * 0.9, 0, 0]
       }
     };
@@ -570,7 +574,23 @@
     "    else if (kind == 2) m = fill(sin(lon * 2.0 + lat * f * 1.5 + t));",
     "    else if (kind == 3) m = fill(sin(acos(clamp(p.z, -1.0, 1.0)) * f * 2.0 - t * 2.0));",
     "    else if (kind == 4) m = smoothstep(0.42, 0.58, fbm(p * f * 0.6 + vec3(t * 0.2)));",
-    "    else m = fill(sin(p.x * f + sin(p.y * f * 0.7 + t) * 2.0));",
+    "    else if (kind == 5) m = fill(sin(p.x * f + sin(p.y * f * 0.7 + t) * 2.0));",
+    "    else if (kind == 6) { vec3 g = fract(p * f * 0.55 + vec3(0.0, t * 0.1, 0.0)) - 0.5; m = 1.0 - smoothstep(0.24, 0.3, length(g)); }", // polka dots
+    "    else if (kind == 7) { vec3 g = floor(p * f * 0.6); m = mod(g.x + g.y + g.z, 2.0); }", // checker
+    "    else if (kind == 8) m = fill(sin(atan(p.y, p.x) * floor(f + 2.0) + t));", // rays from the front
+    "    else if (kind == 9) {", // cracked into cells
+    "      vec3 q = p * f * 0.5, i0 = floor(q); float d1 = 9.0, d2 = 9.0;",
+    "      for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {",
+    "        vec3 cell = i0 + vec3(float(x), float(y), float(z));",
+    "        float d = length(q - cell - vec3(hash3(cell), hash3(cell + 17.0), hash3(cell + 31.0)));",
+    "        if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;",
+    "      }",
+    "      m = 1.0 - smoothstep(0.04, 0.12, d2 - d1);",
+    "    }",
+    "    else if (kind == 10) m = smoothstep(-0.15, 0.15, sin(p.x * f + t) + sin(p.y * f * 1.3 - t) + sin(p.z * f * 0.7 + t * 0.5));", // lava-lamp blobs
+    "    else if (kind == 11) m = 1.0 - smoothstep(0.06, 0.12, min(abs(fract(lat * f / 3.14159) - 0.5), abs(fract(lon * f / 6.28318) - 0.5)));", // a glowing grid
+    "    else if (kind == 12) m = fill(sin(lat * f * 2.0 + abs(fract(lon * f / 3.14159) - 0.5) * 8.0 + t));", // zigzags
+    "    else m = fill(sin(atan(p.y, p.x) * 2.0 + length(p.xy) * f * 2.0 - t * 2.0));", // a galaxy swirl
     "    vec3 c = mix(uSecretB, uSecretA, m);",
     "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 20.0 + 80.0 * uSecretP.z);",
     "    col = c * shade + vec3(spec) * (0.15 + 0.85 * uSecretP.z);",

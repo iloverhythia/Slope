@@ -17,6 +17,7 @@ import patch_menu
 import patch_skin
 import patch_sound
 import patch_play
+import patch_legacy
 
 def main(path):
     files = webdata.read(open(path, 'rb').read())
@@ -27,7 +28,9 @@ def main(path):
             continue
         key = (o.assets_file.name, o.path_id)
         if key in (('level0', 272), ('level0', 273)):
-            o.set_raw_data(patch_steering.patch_control(o.get_raw_data())); print('steering FSM', key[1])
+            data = patch_steering.patch_control(o.get_raw_data())
+            data, log = patch_legacy.patch(data)
+            o.set_raw_data(data); print('steering FSM', key[1], log)
         elif key == ('level0', 299):
             data, changed = patch_steering.patch_speed(o.get_raw_data()); o.set_raw_data(data); print('Speedmanager', changed)
         elif key == ('resources.assets', 21):

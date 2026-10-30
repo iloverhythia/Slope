@@ -65,7 +65,8 @@ FSM_VECTOR3_NONE = struct.pack('<3f', 0, 0, 0) + b'\x01'
 
 def patch_control(raw):
     fsm = pmfsm.parse(raw)
-    wait, steer = fsm['states']
+    # The original two states (patch_legacy adds its own after them).
+    wait, steer = fsm['states'][:2]
     if SET_VELOCITY in steer['actions']['actionNames']:
         return raw  # already patched
     # Steer: AddForce -> SetVelocity, keeping gameObject, vector, x, y, z, space, everyFrame.
