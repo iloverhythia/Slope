@@ -18,7 +18,11 @@
  * Kinds with a limit stop turning up once the tree holds enough of them to
  * reach it; their places go to the multiplier.
  *
+ * Some centre upgrades also unlock a rarer gem (gems.js): Sapphire at tier
+ * 4, Amethyst at 8, Diamond at 13, Prismatic at 18 and Cosmic at 25.
+ *
  *   SlopeUpgrades.multiplier() / magnet() / spawn() / luck() / xp() / discount()
+ *   SlopeUpgrades.hasRarity(id)  true once that gem rarity is unlocked
  *   SlopeUpgrades.price(base)    a shop price after the sale
  *   SlopeUpgrades.node(id)       { id, tier, part, kind, amount, price, milestone }
  */
@@ -35,6 +39,13 @@
 
   // amount: per upgrade, in hundredths (multiplier) or percent; cap: how many
   // the tree holds at most.
+  // Gem rarities the tree unlocks, by tier (gems.js).
+  var RARITIES = (window.SlopeGems && window.SlopeGems.rarities) || [];
+  function unlockAt(tier) {
+    for (var i = 0; i < RARITIES.length; i++) if (RARITIES[i].tier === tier) return RARITIES[i];
+    return null;
+  }
+
   var KINDS = {
     mult: { name: "Multiplier", what: "gem multiplier" },
     magnet: { name: "Magnet", what: "pickup reach", per: 15, cap: 10 },
@@ -74,7 +85,9 @@
     var base = Math.round(PRICE_START * Math.pow(PRICE_GROWTH, tier - 1));
     var centre = part === "C";
     var kind = centre || tier === 1 ? "mult" : sideKind(tier, part);
+    var unlock = centre ? unlockAt(tier) : null;
     return {
+      unlock: unlock ? unlock.id : null,
       id: id,
       tier: tier,
       part: part,
@@ -91,8 +104,13 @@
   }
 
   function effectsOf(list) {
-    var sum = { mult: 100, magnet: 0, spawn: 0, lucky: 0, xp: 0, discount: 0 };
-    list.forEach(function (id) { var n = node(id); if (n) sum[n.kind] += n.amount; });
+    var sum = { mult: 100, magnet: 0, spawn: 0, lucky: 0, xp: 0, discount: 0 }, rarities = {};
+    list.forEach(function (id) {
+      var n = node(id);
+      if (!n) return;
+      sum[n.kind] += n.amount;
+      if (n.unlock) rarities[n.unlock] = true;
+    });
     ORDER.forEach(function (k) { if (KINDS[k].cap) sum[k] = Math.min(sum[k], KINDS[k].per * KINDS[k].cap); });
     return {
       multiplier: sum.mult / 100,
@@ -101,6 +119,7 @@
       lucky: sum.lucky / 100,
       xp: 1 + sum.xp / 100,
       discount: sum.discount / 100,
+      rarities: rarities,
       percent: sum
     };
   }
@@ -123,6 +142,7 @@
     luck: function () { return fx.lucky; },          // chance a gem is golden
     xp: function () { return fx.xp; },               // XP factor
     discount: function () { return fx.discount; },   // off shop prices
+    hasRarity: function (id) { return !!fx.rarities[id]; },
     price: function (base) { return base > 0 ? Math.max(1, Math.round(base * (1 - fx.discount))) : 0; },
     node: node,
     kinds: KINDS
@@ -138,6 +158,31 @@
     return window.SlopeGems && window.SlopeGems.iconSvg ? window.SlopeGems.iconSvg(14, 12) : "";
   }
 
+  function rarityOf(id) {
+    for (var i = 0; i < RARITIES.length; i++) if (RARITIES[i].id === id) return i;
+    return -1;
+  }
+  function rgb(c) { return "rgb(" + c.map(function (v) { return Math.round(v * 255); }).join(",") + ")"; }
+  function rarityColour(i) {
+    return window.SlopeGems ? rgb(window.SlopeGems.colours(i, 1.3).edge) : "currentColor";
+  }
+  function pct(v) { return (v * 100).toFixed(v < 0.01 ? 2 : 1).replace(/\.?0+$/, "") + "%"; }
+
+  // The rarities beyond the plain gem: icon, name, worth and chance (or where
+  // in the tree it unlocks).
+  function rarityRows() {
+    var luck = fx.lucky;
+    return RARITIES.slice(1).map(function (k, j) {
+      var i = j + 1, open = i === 1 ? luck > 0 : !!fx.rarities[k.id];
+      var chance = i === 1 ? luck : k.chance * (1 + 5 * luck);
+      return '<li class="slope-rarity' + (open ? "" : " is-locked") + '" style="--rarity:' + rarityColour(i) + '">' +
+        '<span class="slope-rarity-icon">' + gemIcon() + "</span>" +
+        '<span class="slope-rarity-name">' + k.name + "</span>" +
+        '<span class="slope-rarity-worth">x' + k.worth + "</span>" +
+        '<span class="slope-rarity-chance">' + (open ? pct(chance) : i === 1 ? "Lucky" : "Tier " + k.tier) + "</span></li>";
+    }).join("");
+  }
+
   function build(panel) {
     panel.innerHTML =
       '<div class="slope-upgrades-head">' +
@@ -148,8 +193,10 @@
             return '<li data-kind="' + k + '"><span>' + KINDS[k].name + '</span><span class="slope-effect-value"></span></li>';
           }).join("") +
         "</ul>" +
+        '<ul class="slope-rarities" aria-label="Gem rarities"></ul>' +
         '<p class="slope-shop-note">Every gem you pick up is worth your multiplier. The other upgrades pull gems in, ' +
           "put more on the track, make some golden (worth 5), add XP and take gems off shop prices. " +
+          "Some centre upgrades unlock rarer gems, worth far more. " +
           "Each upgrade opens the next ones, and the tree never ends.</p>" +
       "</div>" +
       '<div class="slope-tree">' +
@@ -165,6 +212,7 @@
       list: panel.querySelector(".slope-tree-tiers"),
       status: panel.querySelector(".slope-upgrades-status"),
       effects: ORDER.map(function (k) { return { kind: k, li: panel.querySelector('[data-kind="' + k + '"]') }; }),
+      rarities: panel.querySelector(".slope-rarities"),
       mult: document.querySelector(".slope-shop-mult")
     };
     panel.addEventListener("slope-show", function () {
@@ -182,10 +230,11 @@
     li.innerHTML =
       '<p class="slope-tier-label">Tier ' + t + (t % MILESTONE === 0 ? "<span>Milestone</span>" : "") + "</p>" +
       ["L", "R", "C"].map(function (part) {
-        var n = node(t + part);
-        return '<button type="button" class="slope-btn slope-upgrade slope-upgrade-' + part.toLowerCase() +
-          '" data-id="' + n.id + '" data-kind="' + n.kind + '"><span class="slope-upgrade-boost">' + fmtAmount(n) + "</span>" +
-          '<span class="slope-upgrade-kind">' + KINDS[n.kind].name + "</span>" +
+        var n = node(t + part), r = n.unlock ? rarityOf(n.unlock) : -1;
+        return '<button type="button" class="slope-btn slope-upgrade slope-upgrade-' + part.toLowerCase() + (n.unlock ? " is-unlock" : "") +
+          '" data-id="' + n.id + '" data-kind="' + n.kind + '"' + (n.unlock ? ' style="--rarity:' + rarityColour(r) + '"' : "") +
+          '><span class="slope-upgrade-boost">' + fmtAmount(n) + "</span>" +
+          '<span class="slope-upgrade-kind">' + (n.unlock ? '<span class="slope-upgrade-gem">' + gemIcon() + "</span>" + RARITIES[r].name + " gems" : KINDS[n.kind].name) + "</span>" +
           '<span class="slope-upgrade-price"></span></button>';
       }).join("");
     els.list.appendChild(li);
@@ -232,14 +281,16 @@
       e.li.querySelector(".slope-effect-value").textContent = effectText(e.kind);
       e.li.classList.toggle("is-zero", !fx.percent[e.kind]);
     });
+    var rows = rarityRows();
+    if (els.rarities.__html !== rows) els.rarities.innerHTML = els.rarities.__html = rows;
     var want = reach(have) + EXTRA_TIERS;
     while (tiers < want) addTier(++tiers);
     for (var id in nodes) {
       var o = nodes[id], n = o.n, state = stateOf(n, have, p.gems), b = o.button;
-      b.className = b.className.replace(/ is-\w+/g, "") + " is-" + state + (n.milestone ? " is-milestone" : "");
+      b.className = b.className.replace(/ is-\w+/g, "") + " is-" + state + (n.milestone ? " is-milestone" : "") + (n.unlock ? " is-unlock" : "");
       b.disabled = state === "owned" || state === "locked";
       b.setAttribute("aria-disabled", String(state !== "ready"));
-      var what = fmtAmount(n) + " " + KINDS[n.kind].what + ", tier " + n.tier;
+      var what = fmtAmount(n) + " " + KINDS[n.kind].what + (n.unlock ? ", unlocks " + RARITIES[rarityOf(n.unlock)].name + " gems" : "") + ", tier " + n.tier;
       if (state === "owned") {
         o.price.textContent = "Bought";
         b.setAttribute("aria-label", what + ", bought");
@@ -303,7 +354,10 @@
     }
     var focused = document.activeElement === nodes[n.id].button;
     if (profile.buyUpgrade(n.id, n.price)) {
-      els.status.textContent = n.kind === "mult"
+      var k = n.unlock ? RARITIES[rarityOf(n.unlock)] : null;
+      els.status.textContent = k
+        ? "Bought " + fmtAmount(n) + ". " + k.name + " gems (worth " + k.worth + ") now turn up on the track."
+        : n.kind === "mult"
         ? "Bought " + fmtAmount(n) + ". Your gem multiplier is " + fmtMult(fx.multiplier) + "."
         : "Bought " + KINDS[n.kind].name + " " + fmtAmount(n) + ". Now " + effectText(n.kind) + " " + KINDS[n.kind].what + ".";
       // The bought button turns off: keep the keyboard on the tree.

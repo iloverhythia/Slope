@@ -415,3 +415,57 @@
     font-size: 14px;
   }
 }
+
+/* Gem rarities (gems.js): each in its own colour; locked ones show the tier
+   that unlocks them. */
+.slope-rarities {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slope-rarity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  box-shadow: inset 0 0 0 1px var(--rarity);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-rarity-icon {
+  display: flex;
+  color: var(--rarity);
+}
+
+.slope-rarity-worth {
+  color: var(--rarity);
+}
+
+.slope-rarity.is-locked {
+  box-shadow: inset 0 0 0 1px var(--slope-dim);
+  color: var(--slope-dim);
+}
+
+.slope-rarity.is-locked .slope-rarity-icon,
+.slope-rarity.is-locked .slope-rarity-worth {
+  color: var(--slope-dim);
+  opacity: 0.6;
+}
+
+/* A centre upgrade that unlocks a rarity: its gem in that colour. */
+.slope-upgrade-gem {
+  display: inline-flex;
+  margin-right: 4px;
+  vertical-align: -2px;
+  color: var(--rarity);
+}
+
+.slope-shop .slope-upgrade.is-unlock:not(.is-owned):not(.is-locked) {
+  box-shadow: inset 0 0 0 2px var(--slope-color), 0 0 10px -2px var(--rarity);
+}

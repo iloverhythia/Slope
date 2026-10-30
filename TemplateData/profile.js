@@ -17,8 +17,10 @@
  * nothing is ever added to the account twice.
  *
  *   SlopeProfile.get()             current profile with level info
- *   SlopeProfile.recordRun(run)    { score, gems, golds, seconds } -> { xp, levelBefore, levelAfter }
+ *   SlopeProfile.recordRun(run)    { score, gems, golds, rares, seconds } -> { xp, levelBefore, levelAfter }
  *   SlopeProfile.recordModeRun(mode, score, { dodged })   a run in a game mode (modes.js)
+ *   SlopeProfile.recordPlatformer(run)   { mode, score, xpScore, gems, golds, rares, seconds, jumps } -> { xp, levelBefore, levelAfter }
+ *   SlopeProfile.completePlatLevel(n, seconds)   platformer Adventure level n beaten: unlocks n + 1
  *   SlopeProfile.xpFor(score)      XP a run with that score earns
  *   SlopeProfile.addGems(n)            n can be fractional (gem multiplier): the
  *                                      fraction is kept; returns whole gems added
@@ -83,12 +85,35 @@
     return { xp: 0, gems: 0, runs: 0, best: 0, total: 0, bestGems: 0, playSeconds: 0, recent: [], skins: [], skin: "classic", advUnlocked: 1, advWins: 0,
       upgrades: [], gemBank: 0, backgrounds: [], background: "none",
       slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null),
-      gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null) };
+      gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null),
+      rares: cleanRares(null), platUnlocked: 1, platWins: 0, platTimes: cleanTimes(null) };
+  }
+
+  // Rare gems picked up, by rarity (gems.js).
+  function rareNames() { return ["sapphire", "amethyst", "diamond", "prismatic", "cosmic"]; }
+  function cleanRares(r) {
+    var out = {};
+    r = r && typeof r === "object" ? r : {};
+    rareNames().forEach(function (k) { var v = Math.floor(+r[k]); out[k] = isFinite(v) && v > 0 ? v : 0; });
+    return out;
+  }
+
+  // Best times of the platformer's Adventure levels: level -> tenths of a second.
+  function cleanTimes(t) {
+    var out = {}, n = 0;
+    t = t && typeof t === "object" ? t : {};
+    Object.keys(t).forEach(function (k) {
+      var v = Math.floor(+t[k]);
+      if (/^[1-9][0-9]{0,5}$/.test(k) && isFinite(v) && v > 0 && n++ < 5000) out[k] = v;
+    });
+    return out;
   }
 
   // Runs per game mode (modes.js): { runs, best, total, dodged }. Gem Rush
   // counts gems in best and total.
-  function modeNames() { return ["classic", "randomizer", "advanced", "rush", "legacy"]; }
+  // platformer: the platformer's Endless (best in metres, dodged: jumps);
+  // platadv: its Adventure levels (runs: tries, best: furthest level beaten, total: levels beaten).
+  function modeNames() { return ["classic", "randomizer", "advanced", "rush", "legacy", "platformer", "platadv"]; }
   function cleanModes(m) {
     function n(v) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? v : 0; }
     var out = {};
@@ -129,11 +154,14 @@
       else if (k === "background") b.background = isSkinId(d.background) ? d.background : "none";
       else if (k === "merge") b.merge = cleanMerge(d.merge);
       else if (k === "modes") b.modes = cleanModes(d.modes);
+      else if (k === "rares") b.rares = cleanRares(d.rares);
+      else if (k === "platTimes") b.platTimes = cleanTimes(d.platTimes);
       else if (k === "slopes") b.slopes = Array.isArray(d.slopes) ? d.slopes.filter(isSlopeId) : [];
       else if (k === "track" || k === "pillar") b[k] = isSlopeId(d[k]) && d[k].indexOf(k + "-") === 0 ? d[k] : k + "-classic";
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
     });
     b.advUnlocked = Math.max(1, Math.floor(b.advUnlocked));
+    b.platUnlocked = Math.max(1, Math.floor(b.platUnlocked));
     b.gems = Math.floor(b.gems);
     b.gemBank = b.gemBank < 1 ? b.gemBank : 0;
     return b;
@@ -175,6 +203,8 @@
       slopes: data.slopes.slice(),
       merge: JSON.parse(JSON.stringify(data.merge)),
       modes: JSON.parse(JSON.stringify(data.modes)),
+      rares: Object.assign({}, data.rares),
+      platTimes: Object.assign({}, data.platTimes),
       level: info.level,
       levelXp: info.into,
       levelNeed: info.need,
@@ -281,6 +311,7 @@
     data.bestGems = Math.max(data.bestGems, gems);
     data.gemsTotal += gems;
     data.goldTotal += Math.max(0, Math.floor(run.golds || 0));
+    addRares(run.rares);
     data.longestRun = Math.max(data.longestRun, Math.round(run.seconds || 0));
     data.playSeconds += Math.max(0, Math.round(run.seconds || 0));
     data.recent.push({ score: score, gems: gems, at: Date.now() });
@@ -288,6 +319,49 @@
     save();
     changed();
     return { xp: xp, levelBefore: before, levelAfter: levelFor(data.xp).level };
+  }
+
+  function addRares(r) {
+    if (!r) return;
+    rareNames().forEach(function (k) { data.rares[k] += Math.max(0, Math.floor(r[k] || 0)); });
+  }
+
+  // A platformer run (platformer.js): XP from its xpScore, its gems in the
+  // totals and its mode's stats; the Slope runs, best and averages stay apart.
+  function recordPlatformer(run) {
+    var before = levelFor(data.xp).level;
+    var xp = xpFor(run.xpScore || 0);
+    var seconds = Math.max(0, Math.round(run.seconds || 0));
+    data.xp += xp;
+    data.gemsTotal += Math.max(0, Math.floor(run.gems || 0));
+    data.bestGems = Math.max(data.bestGems, Math.max(0, Math.floor(run.gems || 0)));
+    data.goldTotal += Math.max(0, Math.floor(run.golds || 0));
+    addRares(run.rares);
+    data.playSeconds += seconds;
+    data.longestRun = Math.max(data.longestRun, seconds);
+    var m = data.modes[run.mode];
+    if (m) {
+      var score = Math.max(0, Math.floor(run.score || 0));
+      m.runs += 1;
+      m.best = Math.max(m.best, score);
+      m.total += run.mode === "platadv" ? (run.won ? 1 : 0) : score;
+      m.dodged += Math.max(0, Math.floor(run.jumps || 0));
+    }
+    save();
+    changed();
+    return { xp: xp, levelBefore: before, levelAfter: levelFor(data.xp).level };
+  }
+
+  // A platformer Adventure level beaten, in that many seconds.
+  function completePlatLevel(n, seconds) {
+    n = Math.floor(n);
+    if (!(n >= 1)) return;
+    data.platWins += 1;
+    data.platUnlocked = Math.max(data.platUnlocked, n + 1);
+    var tenths = Math.max(1, Math.round((seconds || 0) * 10));
+    if (!data.platTimes[n] || tenths < data.platTimes[n]) data.platTimes[n] = tenths;
+    save();
+    changed();
   }
 
   function addGems(n) {
@@ -435,6 +509,14 @@
       pillar: a.pillar !== "pillar-classic" ? a.pillar : b.pillar,
       gemsTotal: a.gemsTotal + b.gemsTotal,
       goldTotal: a.goldTotal + b.goldTotal,
+      rares: rareNames().reduce(function (o, k) { o[k] = a.rares[k] + b.rares[k]; return o; }, {}),
+      platUnlocked: Math.max(a.platUnlocked, b.platUnlocked),
+      platWins: a.platWins + b.platWins,
+      platTimes: Object.keys(a.platTimes).concat(Object.keys(b.platTimes)).reduce(function (o, k) {
+        var x = a.platTimes[k], y = b.platTimes[k];
+        o[k] = x && y ? Math.min(x, y) : x || y;
+        return o;
+      }, {}),
       spent: a.spent + b.spent,
       longestRun: Math.max(a.longestRun, b.longestRun),
       modes: modeNames().reduce(function (o, k) {
@@ -574,6 +656,8 @@
     buySlope: buySlope,
     saveMerge: saveMerge,
     recordModeRun: recordModeRun,
+    recordPlatformer: recordPlatformer,
+    completePlatLevel: completePlatLevel,
     spendGems: spendGems,
     equipSlope: equipSlope,
     equipBackground: equipBackground,

@@ -12,6 +12,7 @@
  * so the shop previews bake in the same tint.
  *
  *   SlopeBackgrounds.list      the background list
+ *   SlopeBackgrounds.painter(gl)   the background in use, drawn in another WebGL2 context
  */
 (function () {
   "use strict";
@@ -572,5 +573,14 @@
   }
   window.SlopeUI.ready(setup);
 
-  window.SlopeBackgrounds = { list: BACKGROUNDS };
+  window.SlopeBackgrounds = {
+    list: BACKGROUNDS,
+    // The background in use, for another WebGL2 context (the platformer):
+    // null for the plain black sky, else { draw({ time, width, height, vanish, travel }) }.
+    painter: function (gl) {
+      var p = null;
+      try { p = new Painter(gl); } catch (e) { return null; }
+      return { draw: function (o) { if (equipped.kind) p.draw(equipped, o); }, on: function () { return !!equipped.kind; } };
+    }
+  };
 })();

@@ -11,15 +11,21 @@
  * from what the game draws, at the height of the floor the ball is rolling
  * on. Roll through one to collect it; it simply disappears. Each one is
  * worth the gem multiplier (upgrades.js) and the merge game's boost
- * (merge.js), five times that if it is golden;
- * the upgrade tree can also widen the pickup reach and add gems. Gems are
- * saved to the profile and spent in the shop. They have no effect on the
- * game itself.
+ * (merge.js), times its rarity: golden gems (the Lucky upgrade) are worth 5,
+ * and the upgrade tree unlocks rarer ones, each worth more and found less
+ * often (Sapphire, Amethyst, Diamond, Prismatic, Cosmic). The upgrade tree
+ * can also widen the pickup reach and add gems. Gems are saved to the
+ * profile and spent in the shop. They have no effect on the game itself.
  *
  *   SlopeGems.list()         gems still on the track (slope coordinates)
  *   SlopeGems.iconSvg(w, h)  the dot-matrix gem icon, as SVG markup
- *   SlopeGems.currentRun()   { gems (earned, with the multiplier), pickups, golds, seconds } for the run in progress
+ *   SlopeGems.currentRun()   { gems (earned, with the multiplier), pickups, golds, rares, seconds } for the run in progress
  *   SlopeGems.floor()        height of the floor the ball rolls on (slope h), or null
+ *   SlopeGems.rarities       the rarities, commonest first: { id, name, worth, chance, tier, edge, face }
+ *   SlopeGems.roll()         a rarity index for a new gem (what the upgrade tree has unlocked)
+ *   SlopeGems.worth(r)       what picking up a gem of rarity r adds (before rounding)
+ *   SlopeGems.colours(r, t)  { edge, face } of rarity r at time t (seconds)
+ *   SlopeGems.found(r, gems) shows a rare find for a moment
  */
 (function () {
   "use strict";
@@ -36,7 +42,54 @@
   var GAP_MIN = 20, GAP_MAX = 38;
   var EDGE_MARGIN = 1.1;        // keep away from the track's edges
   var PICKUP = { s: 0.95, x: 0.95, h: 1.6 };
-  var GOLD_WORTH = 5;           // a golden gem (the Lucky upgrade) counts as five
+
+  // Rarities, commonest first. A golden gem's chance is the Lucky upgrade;
+  // the rarer ones are unlocked in the upgrade tree (its centre upgrade at
+  // that tier), each with its own chance, which Lucky raises too.
+  var RARITIES = [
+    { id: "common", name: "Gem", worth: 1, size: 1, spin: 1, edge: [0.3, 1.0, 0.3], face: [0.0, 0.16, 0.01] },
+    { id: "golden", name: "Golden", worth: 5, size: 1.15, spin: 1.8, edge: [1.0, 0.82, 0.2], face: [0.3, 0.2, 0.0] },
+    { id: "sapphire", name: "Sapphire", worth: 12, chance: 0.04, tier: 4, size: 1.2, spin: 2, edge: [0.35, 0.62, 1.0], face: [0.02, 0.07, 0.3] },
+    { id: "amethyst", name: "Amethyst", worth: 30, chance: 0.02, tier: 8, size: 1.25, spin: 2.2, edge: [0.82, 0.42, 1.0], face: [0.18, 0.03, 0.28] },
+    { id: "diamond", name: "Diamond", worth: 75, chance: 0.01, tier: 13, size: 1.3, spin: 2.5, edge: [0.88, 0.97, 1.0], face: [0.3, 0.36, 0.42] },
+    { id: "prismatic", name: "Prismatic", worth: 200, chance: 0.004, tier: 18, size: 1.35, spin: 2.8, edge: "rainbow", face: [0.12, 0.12, 0.12] },
+    { id: "cosmic", name: "Cosmic", worth: 500, chance: 0.0015, tier: 25, size: 1.45, spin: 3.2, edge: "cosmic", face: [0.06, 0.0, 0.1] }
+  ];
+  var LUCK_BOOST = 5;           // rare chances grow by Lucky x this (at Lucky 30%: 2.5 times)
+
+  function hueRgb(h) {
+    h = ((h % 1) + 1) % 1;
+    return [0, 4, 2].map(function (o) { return Math.max(0, Math.min(1, Math.abs(((h * 6 + o) % 6) - 3) - 1)); });
+  }
+
+  function colours(r, t) {
+    var k = RARITIES[r] || RARITIES[0], edge = k.edge;
+    if (edge === "rainbow") edge = hueRgb(t * 0.35);
+    else if (edge === "cosmic") {
+      var m = 0.5 + 0.5 * Math.sin(t * 3);
+      edge = [1.0 - 0.7 * m, 0.35 + 0.5 * m, 1.0];
+    }
+    return { edge: edge, face: k.face };
+  }
+
+  // A new gem's rarity: the rarest unlocked one that comes up, else golden
+  // (Lucky), else a plain gem.
+  function roll() {
+    var luck = upgrade("luck");
+    var has = window.SlopeUpgrades && window.SlopeUpgrades.hasRarity;
+    for (var r = RARITIES.length - 1; r >= 2; r--) {
+      if (has && has(RARITIES[r].id) && Math.random() < RARITIES[r].chance * (1 + LUCK_BOOST * luck)) return r;
+    }
+    return Math.random() < luck ? 1 : 0;
+  }
+
+  // What a pickup adds: the upgrade tree's multiplier, the rarity, the merge
+  // game's best ball and a Double gems effect.
+  function worth(r) {
+    return (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (RARITIES[r] || RARITIES[0]).worth *
+      (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *
+      (effect("double") ? 2 : 1);
+  }
 
   // Upgrade tree effects (upgrades.js), none without it.
   function upgrade(name) {
@@ -61,7 +114,8 @@
   var lastBall = null;
   var grounded = 0;            // frames the ball has been on the floor
   var lastTime = 0;
-  var run = { gems: 0, pickups: 0, golds: 0, start: 0 };
+  var run = newRun(0);
+  function newRun(start) { return { gems: 0, pickups: 0, golds: 0, rares: {}, start: start }; }
 
   // --- Placement -------------------------------------------------------------
 
@@ -101,11 +155,10 @@
       if (!range) { nextS = s + 4; continue; }
       var x = range.lo + Math.random() * (range.hi - range.lo);
       var line = Math.random() < 0.3 ? 3 : 1;
-      var luck = upgrade("luck");
       for (var i = 0; i < line; i++) {
         if (i && !trackRange(frame.pieces, s + i * 3.5)) break;
         if (adventure && !adventure.isClear(s + i * 3.5)) break; // never inside a level's obstacle
-        gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI, gold: Math.random() < luck });
+        gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI, r: roll() });
       }
       // The More gems upgrade closes the gaps.
       var denser = (1 + upgrade("spawn")) * (effect("gemrain") ? 3 : 1);
@@ -126,7 +179,7 @@
   game.on("runstart", function () {
     reset();
     running = true;
-    run = { gems: 0, pickups: 0, golds: 0, start: performance.now() };
+    run = newRun(performance.now());
   });
 
   game.on("runend", function () {
@@ -181,15 +234,36 @@
     lastBall = { s: ball.s, h: ball.h, x: ball.x };
   });
 
-  // Each pickup is worth the gem multiplier from the upgrade tree (upgrades.js).
+  // Each pickup is worth the gem multiplier from the upgrade tree (upgrades.js) and its rarity.
   function collect(g) {
     g.taken = true;
-    run.pickups += 1;
-    if (g.gold) run.golds += 1;
-    var worth = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (g.gold ? GOLD_WORTH : 1) *
-      (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *   // the merge game's best ball
-      (effect("double") ? 2 : 1);
-    if (window.SlopeProfile) run.gems += window.SlopeProfile.addGems(worth);
+    var added = window.SlopeProfile ? window.SlopeProfile.addGems(worth(g.r)) : 0;
+    count(run, g.r, added);
+    if (g.r >= 2) found(g.r, added);
+  }
+
+  // A pickup in a run's tally (the platformer keeps its own).
+  function count(tally, r, added) {
+    tally.pickups += 1;
+    tally.gems += added;
+    if (r === 1) tally.golds += 1;
+    if (r >= 2) tally.rares[RARITIES[r].id] = (tally.rares[RARITIES[r].id] || 0) + 1;
+  }
+
+  // A rare find shows for a moment under the HUD.
+  var pop = null, popTimer = 0;
+  function found(r, added) {
+    if (!pop) return;
+    var k = RARITIES[r], c = colours(r, performance.now() / 1000).edge;
+    pop.querySelector(".slope-gem-pop-name").textContent = k.name + " gem!";
+    pop.querySelector(".slope-gem-pop-worth").textContent = "+" + added + (added === 1 ? " gem" : " gems");
+    pop.style.setProperty("--rarity", "rgb(" + c.map(function (v) { return Math.round(v * 255); }).join(",") + ")");
+    pop.hidden = false;
+    pop.classList.remove("is-new");
+    void pop.offsetWidth;   // restart the animation
+    pop.classList.add("is-new");
+    clearTimeout(popTimer);
+    popTimer = setTimeout(function () { pop.hidden = true; }, 1600);
   }
 
   // --- Drawing in the game's scene ----------------------------------------------
@@ -217,13 +291,11 @@
     "precision mediump float;",
     "varying vec3 vBary;",
     "varying float vLight;",
-    "uniform float uGold;",
+    "uniform vec3 uFace, uEdge;",
     "void main() {",
     "  float edge = min(min(vBary.x, vBary.y), vBary.z);",
     "  float line = 1.0 - smoothstep(0.045, 0.075, edge);",
-    "  vec3 face = mix(vec3(0.0, 0.16, 0.01), vec3(0.3, 0.2, 0.0), uGold) * vLight;",
-    "  vec3 edgeColour = mix(vec3(0.3, 1.0, 0.3), vec3(1.0, 0.82, 0.2), uGold);",
-    "  gl_FragColor = vec4(mix(face, edgeColour, line), 1.0);",
+    "  gl_FragColor = vec4(mix(uFace * vLight, uEdge, line), 1.0);",
     "}"
   ].join("\n");
 
@@ -280,7 +352,7 @@
       gl.vertexAttribPointer(i, 3, gl.FLOAT, false, 36, i * 12);
     }
     var u = {};
-    ["uViewProjection", "uCentre", "uSide", "uUp", "uDownhill", "uRadius", "uGold"].forEach(function (name) {
+    ["uViewProjection", "uCentre", "uSide", "uUp", "uDownhill", "uRadius", "uFace", "uEdge"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     return { gl: gl, program: program, vertexArray: vertexArray, u: u };
@@ -298,10 +370,12 @@
     gl.uniform3fv(res.u.uUp, NORMAL);
     var t = performance.now() / 1000;
     gems.forEach(function (g) {
-      // Golden gems are a little bigger and spin faster.
-      gl.uniform1f(res.u.uGold, g.gold ? 1 : 0);
-      gl.uniform1f(res.u.uRadius, GEM_RADIUS * (g.gold ? 1.15 : 1));
-      var a = t * SPIN * (g.gold ? 1.8 : 1) + g.turn, c = Math.cos(a), s = Math.sin(a);
+      // Rarer gems are a little bigger and spin faster.
+      var k = RARITIES[g.r] || RARITIES[0], col = colours(g.r, t);
+      gl.uniform3fv(res.u.uFace, col.face);
+      gl.uniform3fv(res.u.uEdge, col.edge);
+      gl.uniform1f(res.u.uRadius, GEM_RADIUS * k.size);
+      var a = t * SPIN * k.spin + g.turn, c = Math.cos(a), s = Math.sin(a);
       gl.uniform3fv(res.u.uCentre, game.toWorld(g.s, g.h, g.x));
       gl.uniform3f(res.u.uSide, SIDE[0] * c + DOWNHILL[0] * s, SIDE[1] * c + DOWNHILL[1] * s, SIDE[2] * c + DOWNHILL[2] * s);
       gl.uniform3f(res.u.uDownhill, DOWNHILL[0] * c - SIDE[0] * s, DOWNHILL[1] * c - SIDE[1] * s, DOWNHILL[2] * c - SIDE[2] * s);
@@ -343,6 +417,13 @@
       if (window.SlopeShop) window.SlopeShop.open(counter);
     });
     if (window.SlopeProfile) window.SlopeProfile.onChange(function (p) { show(p.gems); });
+
+    pop = document.createElement("div");
+    pop.className = "slope-gem-pop";
+    pop.setAttribute("role", "status");
+    pop.hidden = true;
+    pop.innerHTML = gemIcon(28, 24) + '<p class="slope-gem-pop-name"></p><p class="slope-gem-pop-worth"></p>';
+    ui.root.appendChild(pop);
   }
 
   if (window.SlopeUI) window.SlopeUI.ready(mountCounter);
@@ -350,12 +431,20 @@
   window.SlopeGems = {
     iconSvg: gemIcon,
     list: function () {
-      return gems.map(function (g) { return { s: g.s, x: g.x, h: g.h, gold: !!g.gold }; });
+      return gems.map(function (g) { return { s: g.s, x: g.x, h: g.h, gold: g.r === 1, rarity: RARITIES[g.r].id }; });
     },
     floor: function () { return floorH; },
     currentRun: function () {
       var seconds = run.start ? (performance.now() - run.start) / 1000 : 0;   // on the game's clock
-      return { gems: run.gems, pickups: run.pickups, golds: run.golds, seconds: seconds };
-    }
+      return { gems: run.gems, pickups: run.pickups, golds: run.golds, rares: Object.assign({}, run.rares), seconds: seconds };
+    },
+    rarities: RARITIES,
+    roll: roll,
+    worth: worth,
+    colours: colours,
+    found: found,
+    // A run's pickup tally for another game (the platformer): { gems, pickups, golds, rares }.
+    tally: function () { return newRun(0); },
+    count: count
   };
 })();

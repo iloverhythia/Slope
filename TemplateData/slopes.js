@@ -10,6 +10,7 @@
  * colour setting still tints them.
  *
  *   SlopeSlopes.track / SlopeSlopes.pillars   the style lists
+ *   SlopeSlopes.tiles()   the tiles in use, as canvases (for the platformer)
  */
 (function () {
   "use strict";
@@ -569,5 +570,19 @@
     if (panel) build(panel);
   });
 
-  window.SlopeSlopes = { track: TRACK, pillars: PILLARS };
+  window.SlopeSlopes = {
+    track: TRACK,
+    pillars: PILLARS,
+    // The tiles in use (canvases), for the platformer's blocks: floor and
+    // edge from the track style, wall from the pillar style.
+    tiles: function () {
+      var p = profile.get(), t = byId(TRACK, p.track).style, q = byId(PILLARS, p.pillar).style;
+      return {
+        floor: t ? tile(t, "fill", THICK, GREEN) : classicTile("fill", THICK, GREEN),
+        edge: t ? tile(t, "edge", THICK, GREEN) : classicTile("edge", THICK, GREEN),
+        wall: q ? tile(q, "edge", THICK, RED) : classicTile("edge", THICK, RED),
+        key: p.track + "/" + p.pillar
+      };
+    }
+  };
 })();

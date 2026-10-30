@@ -55,11 +55,33 @@
   ];
 
   // Per game mode (modes.js), and everything else worth counting.
-  var MODE_STATS = [["classic", "Classic"], ["randomizer", "Randomizer"], ["advanced", "Advanced"], ["rush", "Gem Rush"], ["legacy", "Legacy"]];
+  var MODE_STATS = [["classic", "Classic"], ["randomizer", "Randomizer"], ["advanced", "Advanced"], ["rush", "Gem Rush"], ["legacy", "Legacy"],
+    ["platformer", "Platformer Endless"], ["platadv", "Platformer Adventure"]];
+  // What each mode card shows: [stat, label, unit].
+  var PLAIN_FIELDS = [["runs", "Runs"], ["best", "Best"], ["average", "Average"]];
+  var MODE_FIELDS = {
+    advanced: PLAIN_FIELDS.concat([["dodged", "Obstacles passed"]]),
+    rush: [["runs", "Runs"], ["best", "Most gems"], ["average", "Average gems"]],
+    platformer: [["runs", "Runs"], ["best", "Best distance", " m"], ["average", "Average distance", " m"], ["dodged", "Jumps"]],
+    platadv: [["runs", "Tries"], ["best", "Best level"], ["total", "Levels beaten"]]
+  };
+  // The platformer's cards only once it is on the page (platformer.js).
+  function shown(m) { return !/^plat/.test(m[0]) || !!window.SlopePlatformer; }
+  function rareText(p) {
+    var r = p.rares || {}, names = window.SlopeGems ? window.SlopeGems.rarities : [];
+    var total = 0, parts = [];
+    names.slice(2).forEach(function (k) {
+      var n = r[k.id] || 0;
+      total += n;
+      if (n) parts.push(k.name + " " + fmt(n));
+    });
+    return fmt(total) + (parts.length ? " (" + parts.join(", ") + ")" : "");
+  }
   function count(list) { return list ? list.length : 0; }
   var MORE_STATS = [
     ["Gems collected", function (p) { return fmt(p.gemsTotal); }],
     ["Golden gems", function (p) { return fmt(p.goldTotal); }],
+    ["Rare gems", rareText],
     ["Gems spent", function (p) { return fmt(p.spent); }],
     ["Most gems in a run", function (p) { return fmt(p.bestGems); }],
     ["Gem multiplier", function () {
@@ -121,12 +143,11 @@
         '<section class="slope-stat-group" aria-labelledby="slope-modes-label">' +
           '<p class="slope-label" id="slope-modes-label">Modes</p>' +
           '<div class="slope-mode-stats">' +
-            MODE_STATS.map(function (m) {
+            MODE_STATS.filter(shown).map(function (m) {
               return '<dl class="slope-mode-stat" data-mode="' + m[0] + '"><p class="slope-mode-stat-name">' + m[1] + "</p>" +
-                '<div><dt>Runs</dt><dd data-k="runs">0</dd></div>' +
-                '<div><dt>' + (m[0] === "rush" ? "Most gems" : "Best") + '</dt><dd data-k="best">0</dd></div>' +
-                '<div><dt>' + (m[0] === "rush" ? "Average gems" : "Average") + '</dt><dd data-k="average">0</dd></div>' +
-                (m[0] === "advanced" ? '<div><dt>Obstacles passed</dt><dd data-k="dodged">0</dd></div>' : "") +
+                (MODE_FIELDS[m[0]] || PLAIN_FIELDS).map(function (f) {
+                  return "<div><dt>" + f[1] + '</dt><dd data-k="' + f[0] + '">0</dd></div>';
+                }).join("") +
               "</dl>";
             }).join("") +
           "</div>" +
@@ -229,13 +250,13 @@
       dd.textContent = s[0] === "playSeconds" ? fmtTime(p.playSeconds) : fmt(p[s[0]]);
     });
 
-    MODE_STATS.forEach(function (m) {
+    MODE_STATS.filter(shown).forEach(function (m) {
       var st = p.modes[m[0]], box = els.screen.querySelector('[data-mode="' + m[0] + '"]');
-      box.querySelector('[data-k="runs"]').textContent = fmt(st.runs);
-      box.querySelector('[data-k="best"]').textContent = fmt(st.best);
-      box.querySelector('[data-k="average"]').textContent = st.runs ? fmt(st.total / st.runs) : "0";
-      var d = box.querySelector('[data-k="dodged"]');
-      if (d) d.textContent = fmt(st.dodged);
+      if (!st || !box) return;
+      (MODE_FIELDS[m[0]] || PLAIN_FIELDS).forEach(function (f) {
+        var v = f[0] === "average" ? (st.runs ? st.total / st.runs : 0) : st[f[0]];
+        box.querySelector('[data-k="' + f[0] + '"]').textContent = fmt(v) + (f[2] || "");
+      });
     });
     MORE_STATS.forEach(function (s, i) {
       els.screen.querySelector('[data-more="' + i + '"]').textContent = s[1](p);
@@ -303,7 +324,7 @@
 
   game.on("runend", function (e) {
     var run = window.SlopeGems ? window.SlopeGems.currentRun() : { gems: 0, seconds: 0 };
-    var result = profile.recordRun({ score: e.score, gems: run.gems, golds: run.golds, seconds: run.seconds });
+    var result = profile.recordRun({ score: e.score, gems: run.gems, golds: run.golds, rares: run.rares, seconds: run.seconds });
     // Adventure levels show their own result screen.
     var adventure = window.SlopeAdventure && window.SlopeAdventure.handlesRun();
     if (els.toast && !adventure) showRunSummary(e.score, result, run.gems);

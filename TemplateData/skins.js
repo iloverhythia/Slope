@@ -18,6 +18,7 @@
  *   SlopeShop.skins            the skin list
  *   SlopeSkins.secret(level)   the merge game's secret skin for a ball level
  *   SlopeSkins.image(skin)     a still picture of a skin (data URL)
+ *   SlopeSkins.equipped() / renderer(gl)   the worn skin, drawn in another WebGL2 context
  */
 (function () {
   "use strict";
@@ -1139,7 +1140,16 @@
     return (imageCache[key] = c.toDataURL());
   }
 
-  window.SlopeSkins = { byId: skinById, secret: secretSkin, image: skinImage };
+  window.SlopeSkins = {
+    byId: skinById,
+    secret: secretSkin,
+    image: skinImage,
+    // The worn skin, and a renderer for it in another WebGL2 context (the
+    // platformer): use(skin, vp, o2w, camera, light, time) then draw a sphere
+    // with its positions in attribute 0.
+    equipped: function () { return equipped; },
+    renderer: function (gl) { return new Renderer(gl); }
+  };
 
   window.SlopeShop = {
     open: function (from, which) { if (which) tab = which; open(from); },

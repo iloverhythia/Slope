@@ -25,6 +25,7 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
   - **Bin**: drag a ball onto the bin (or click a ball, then the bin) to delete it. Your best ball only goes on the second try.
   - The first 14 secret levels each have their own pattern (stripes, swirls, dots, checks, rays, cells, a galaxy and more); after that the patterns mix.
 - **Gem upgrades** (the shop's Upgrades tab): an endless upgrade tree. The centre line raises the gem multiplier (each gem you pick up is worth the multiplier; fractions add up). The side upgrades take turns between Magnet (wider pickup reach, gems drift to the ball), More gems, Lucky (golden gems worth 5), XP and Shop sale (cheaper skins and backgrounds), plus more multiplier; kinds with a limit stop appearing once it is reached. Every 10th tier boosts more, and prices grow 20% a tier.
+  - **Gem rarities**: some centre upgrades unlock rarer gems, each in its own colour, bigger and spinning faster: Sapphire (worth 12, tier 4), Amethyst (30, tier 8), Diamond (75, tier 13), Prismatic (200, tier 18) and Cosmic (500, tier 25). Lucky makes them turn up more often too. A rare find flashes its name at the top of the screen, and the Career screen counts them.
 - **Adventure** button in the main menu: an endless grid of levels. Reach a level's finish line to unlock the next one.
   - **13 obstacles**: blocks, walls with a gap, sliders, lasers, rising pillars, spinners, doors (a wall whose gap slides), pendulums, droppers (blocks that fall where a red mark shows), rams (blocks that charge up and down the slope), spikes, orbiters (blocks circling a post) and slalom gates.
   - **4 other slopes** on stretches of track, each with its own floor and a banner while the ball is on it: a narrow winding trench, lava with a dark path through it, boost (green chevrons; the game runs 1.3 times as fast) and ice (a turn slides on for 0.2 s after the key is let go).
@@ -46,6 +47,7 @@ The game is a compiled Unity build, so new behavior is added two ways:
   - the game signals run start, final score, menu button clicks and "menu shown" to the page through the URL hash
   - the game's sound button is switched off (its Image and Button components), since music is in Settings now
   - the Play button asks the page for its game mode picker (#slope-play) instead of starting a run; the page starts the run once a mode is picked
+  - the JHub Productions logo replaces the Y8 logo on the More Games button (and the other Y8 pictures), from `tools/jhub-logo.png` (`tools/patch_logo.py`)
 
 To apply the edits to an original `slope_data.unityweb` (safe to run again):
 
