@@ -43,7 +43,7 @@
     { key: "lucky", name: "Lucky merge", max: 12, base: 30, growth: 1.75,
       effect: function (l) { return (l * 4) + "% chance a merge skips a level"; } },
     { key: "star", name: "Star balls", max: 10, base: 70, growth: 2,
-      effect: function (l) { return l ? (l * 2) + "% of new balls are stars: drop one on any ball to level it up" : "None"; } },
+      effect: function (l) { return l ? (l * 2) + "% of new balls are stars: drop one on a ball (not your best) to level it up" : "None"; } },
     { key: "gemball", name: "Gem balls", max: 10, base: 40, growth: 1.85,
       effect: function (l) { return l ? (l * 3) + "% of new balls are gem balls: click one for " + gemBallValue(l) + " gems" : "None"; } },
     { key: "pay", name: "Merge pay", max: 20, base: 90, growth: 1.9,
@@ -64,7 +64,12 @@
   function up(key) { return state.up[key] || 0; }
   function clicksNeeded() { return Math.max(3, BASE_CLICKS - up("fast")); }
   function boardInfo() { return BOARDS[Math.min(up("board"), BOARDS.length - 1)]; }
-  function spawnLevel() { return Math.max(1, Math.min(1 + up("better"), state.best - 2)); }
+  // New balls: Better balls raises them (up to 2 below your best); Gem
+  // Prestige raises where they start.
+  function spawnLevel() {
+    var start = profile.boosts ? profile.boosts().mergeStart : 1;
+    return Math.max(start, Math.min(1 + up("better"), state.best - 2));
+  }
   function boostOf(m) { return m.best > 1 ? 1 + (m.best - 1) * (BOOST_PER_LEVEL + 0.02 * (m.up.charm || 0)) : 1; }
   function gemBallValue(l) { return Math.round((5 + 2 * Math.max(1, state.best)) * (1 + 0.1 * l)); }
   function autoMergeEvery(l) { return Math.max(2, 12 - 2 * l); }
@@ -161,18 +166,28 @@
             '<button type="button" class="slope-btn slope-merge-trash" aria-label="Bin: delete a ball">' + binIcon() + "<span>Bin</span></button>" +
             '<p class="slope-merge-hint">Click Spawn ' + BASE_CLICKS + ' times for a ball. Drag a ball onto one of the same level ' +
               "(or click one, then the other) to merge them. Every new level is a secret skin, and your best ball makes gems worth more. " +
-              "Stars level up any ball; click a gem ball for gems. Drop a ball in the bin to delete it.</p>" +
+              "Stars level up any ball but your best; click a gem ball for gems. Drop a ball in the bin to delete it.</p>" +
             '<p class="slope-shop-status slope-merge-status" role="status"></p>' +
           "</div>" +
         "</div>" +
         '<h3 class="slope-shop-section">Upgrades</h3>' +
         '<ul class="slope-merge-upgrades"></ul>' +
+        '<p class="slope-shop-note slope-merge-link slope-merge-prestige">Gem Prestige starts Merge and the gem upgrade tree over for boosts that last for good. ' +
+          '<button type="button" class="slope-btn">Gem Prestige</button></p>' +
         '<h3 class="slope-shop-section">Secret skins</h3>' +
         '<p class="slope-shop-note slope-merge-skins-note"></p>' +
         '<ul class="slope-skins slope-merge-skins"></ul>' +
         '<div class="slope-career-actions"><button type="button" class="slope-btn slope-back">Back</button></div>' +
       "</div>";
     ui.root.appendChild(screen);
+    screen.querySelector(".slope-merge-prestige button").addEventListener("click", function () {
+      close();
+      if (window.SlopeShop) window.SlopeShop.open(null, "upgrades");
+      setTimeout(function () {
+        var box = document.querySelector(".slope-prestige");
+        if (box) { box.scrollIntoView({ block: "center" }); var b = box.querySelector("button"); if (b && !b.disabled) b.focus({ preventScroll: true }); }
+      }, 150);
+    });
 
     els = {
       screen: screen,
@@ -263,12 +278,20 @@
     if (c.level === level) return;
     c.level = level;
     c.el.classList.toggle("is-empty", !level);
+    // Higher balls get flashier spaces: a glow (8+), a pulse (16+), a spinning
+    // ring (28+), a rainbow ring (45+), a burst of rays (70+).
+    var tier = level > 0 ? (level >= 70 ? 5 : level >= 45 ? 4 : level >= 28 ? 3 : level >= 16 ? 2 : level >= 8 ? 1 : 0) : 0;
+    c.el.className = c.el.className.replace(/ ?is-tier-\d/g, "") + (tier ? " is-tier-" + tier : "");
+    if (tier) {
+      var a = skin(level).trail || [0, 1, 0];
+      c.el.style.setProperty("--ball-glow", "rgb(" + a.map(function (v) { return Math.round(v * 255); }).join(",") + ")");
+    } else c.el.style.removeProperty("--ball-glow");
     if (level < 0) {
       c.img.src = specialImage(level);
       c.img.hidden = false;
       var value = gemBallValue(up("gemball"));
       c.label.textContent = level === STAR ? "+1" : "+" + value;
-      c.el.setAttribute("aria-label", level === STAR ? "Star ball: drop it on any ball to level that ball up" : "Gem ball: click it for " + value + " gems");
+      c.el.setAttribute("aria-label", level === STAR ? "Star ball: drop it on any ball but your best to level that ball up" : "Gem ball: click it for " + value + " gems");
     } else if (level) {
       var url = image(level), s = skin(level);
       if (url) c.img.src = url; else c.img.removeAttribute("src");
@@ -302,10 +325,15 @@
     } else if (a > 0 && a === b) {
       var lucky = Math.random() < up("lucky") * 0.04;
       made(from, to, a + (lucky ? 2 : 1), lucky ? "Lucky! " : "");
-    } else if (a === STAR && b > 0) {
-      made(from, to, b + 1, "Star! ");
-    } else if (b === STAR && a > 0) {
-      made(from, to, a + 1, "Star! ");
+    } else if ((a === STAR && b > 0) || (b === STAR && a > 0)) {
+      // A star levels up any ball but your best: new bests come from merging.
+      var target = a === STAR ? b : a;
+      if (target >= state.best) {
+        say("Stars can't level up your best ball (level " + state.best + "). Use it on a lower one.");
+        renderBoard();
+        return;
+      }
+      made(from, to, target + 1, "Star! ");
     } else {
       state.board[to] = a; state.board[from] = b;
       commit(false);
@@ -449,7 +477,7 @@
         pop(i);
         if (second >= 0) pop(second);
         if (first) { renderSkins(); say("Your first ball! Merge two of the same level to make the next one."); }
-        else if (kind === STAR) say("A star ball! Drop it on any ball to level that ball up.");
+        else if (kind === STAR) say("A star ball! Drop it on any ball but your best to level that ball up.");
         else if (kind === GEM) say("A gem ball! Click it for " + gemBallValue(up("gemball")) + " gems.");
         else if (second >= 0) say("Double spawn: two balls!");
       }
@@ -528,10 +556,10 @@
   }
 
   function renderSkins() {
-    var p = profile.get();
-    els.skinsNote.textContent = state.best ? "You've found " + state.best + (state.best === 1 ? " ball" : " balls") + ". Merge for more: they never run out."
+    var p = profile.get(), found = Math.max(state.best, p.secretBest || 0);
+    els.skinsNote.textContent = found ? "You've found " + found + (found === 1 ? " ball" : " balls") + ". Merge for more: they never run out."
       : "Spawn your first ball to find the first one.";
-    for (var level = 1; level <= state.best; level++) {
+    for (var level = 1; level <= found; level++) {
       var card = els.skinCards[level];
       if (!card) {
         var s = skin(level), li = document.createElement("li");
@@ -556,9 +584,11 @@
 
   function renderSummary() {
     var boost = boostOf(state);
-    els.summary.innerHTML = state.best
+    var p = profile.get();
+    els.summary.innerHTML = (state.best
       ? "Best ball: <strong>" + skin(state.best).name + "</strong> (level " + state.best + ")  \u00b7  gems x" + boost.toFixed(2)
-      : "No balls yet";
+      : "No balls yet") +
+      (p.prestige ? "  \u00b7  Prestige " + p.prestige : "");
   }
 
   function render() {

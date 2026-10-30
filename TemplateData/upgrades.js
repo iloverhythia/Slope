@@ -23,6 +23,9 @@
  *
  *   SlopeUpgrades.multiplier() / magnet() / spawn() / luck() / xp() / discount()
  *   SlopeUpgrades.hasRarity(id)  true once that gem rarity is unlocked
+ *
+ * The tab also holds Gem Prestige (profile.js): start the tree and the merge
+ * game over for prestige points, which boost gems and XP for good.
  *   SlopeUpgrades.price(base)    a shop price after the sale
  *   SlopeUpgrades.node(id)       { id, tier, part, kind, amount, price, milestone }
  */
@@ -199,6 +202,15 @@
           "Some centre upgrades unlock rarer gems, worth far more. " +
           "Each upgrade opens the next ones, and the tree never ends.</p>" +
       "</div>" +
+      '<section class="slope-prestige" aria-labelledby="slope-prestige-title">' +
+        '<h3 class="slope-prestige-title" id="slope-prestige-title">Gem Prestige</h3>' +
+        '<p class="slope-prestige-now"></p>' +
+        '<p class="slope-prestige-note">Start this upgrade tree and your Merge game (board, balls and Merge upgrades) over for prestige points. ' +
+          "Each point is +25% gems and +10% XP for good, and every 3 points new merge balls start a level higher. " +
+          "You get a point for every 5 levels of your best merge ball and every 3 tiers of the tree. Gems, skins (secret ones too) and everything else stay.</p>" +
+        '<button type="button" class="slope-btn slope-prestige-btn"></button>' +
+        '<p class="slope-prestige-status" role="status"></p>' +
+      "</section>" +
       '<div class="slope-tree">' +
         '<svg class="slope-tree-lines" aria-hidden="true" preserveAspectRatio="none"></svg>' +
         '<ol class="slope-tree-tiers"></ol>' +
@@ -213,6 +225,9 @@
       status: panel.querySelector(".slope-upgrades-status"),
       effects: ORDER.map(function (k) { return { kind: k, li: panel.querySelector('[data-kind="' + k + '"]') }; }),
       rarities: panel.querySelector(".slope-rarities"),
+      prestigeNow: panel.querySelector(".slope-prestige-now"),
+      prestigeBtn: panel.querySelector(".slope-prestige-btn"),
+      prestigeStatus: panel.querySelector(".slope-prestige-status"),
       mult: document.querySelector(".slope-shop-mult")
     };
     panel.addEventListener("slope-show", function () {
@@ -222,6 +237,42 @@
       if (next) requestAnimationFrame(function () { scrollToNode(next); });
     });
     profile.onChange(render);
+    // Two clicks: the first asks, the second (within 5 s) does it.
+    var armed = 0;
+    els.prestigeBtn.addEventListener("click", function () {
+      var gain = profile.prestigeGain();
+      if (gain < 1) return;
+      if (!armed) {
+        armed = setTimeout(function () { armed = 0; renderPrestige(profile.get()); }, 5000);
+        els.prestigeBtn.classList.add("is-armed");
+        els.prestigeBtn.textContent = "Sure? Click again to reset the tree and Merge";
+        return;
+      }
+      clearTimeout(armed);
+      armed = 0;
+      els.prestigeBtn.classList.remove("is-armed");
+      var got = profile.prestige();
+      var b = profile.boosts();
+      els.prestigeStatus.textContent = got ? "Prestige! +" + got + (got === 1 ? " point" : " points") + ". Gems x" + b.gems.toFixed(2) + " and XP x" + b.xp.toFixed(2) + " for good." : "";
+      tiers = 0; nodes = {}; els.list.innerHTML = "";
+      render(profile.get());
+    });
+  }
+
+  function renderPrestige(p) {
+    var gain = profile.prestigeGain(), b = profile.boosts();
+    els.prestigeNow.textContent = p.prestige
+      ? "Prestige " + p.prestige + "  \u00b7  gems x" + b.gems.toFixed(2) + "  \u00b7  XP x" + b.xp.toFixed(2) + "  \u00b7  merge balls start at level " + b.mergeStart
+      : "No prestige yet";
+    if (!els.prestigeBtn.classList.contains("is-armed")) {
+      var then = profile.boostsFor(p.prestige + gain);
+      els.prestigeBtn.textContent = gain ? "Prestige for +" + gain + (gain === 1 ? " point" : " points") + " (gems x" + then.gems.toFixed(2) + ")" : "Prestige";
+    }
+    els.prestigeBtn.disabled = gain < 1;
+    els.prestigeBtn.setAttribute("aria-label", gain ? "Gem Prestige for " + gain + " points: resets the upgrade tree and the Merge game"
+      : "Gem Prestige: reach merge level 5 or tree tier 3 first");
+    if (gain < 1) els.prestigeBtn.title = "Reach merge level 5 or finish 3 tiers of the tree first";
+    else els.prestigeBtn.removeAttribute("title");
   }
 
   function addTier(t) {
@@ -268,8 +319,8 @@
   function render(p) {
     var mult = fx.multiplier;
     if (els && els.mult) {
-      // Everything a gem is worth: the tree and the merge game's best ball.
-      var worth = mult * (window.SlopeMerge ? window.SlopeMerge.boost() : 1);
+      // Everything a gem is worth: the tree, the merge game's best ball and Gem Prestige.
+      var worth = mult * (window.SlopeMerge ? window.SlopeMerge.boost() : 1) * (profile.boosts ? profile.boosts().gems : 1);
       els.mult.textContent = worth > 1 ? fmtMult(worth) + " per gem" : "";
       els.mult.hidden = !(worth > 1);
     }
@@ -283,6 +334,7 @@
     });
     var rows = rarityRows();
     if (els.rarities.__html !== rows) els.rarities.innerHTML = els.rarities.__html = rows;
+    renderPrestige(p);
     var want = reach(have) + EXTRA_TIERS;
     while (tiers < want) addTier(++tiers);
     for (var id in nodes) {

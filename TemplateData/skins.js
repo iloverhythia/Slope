@@ -125,7 +125,10 @@
     { id: "jupiter", name: "Jupiter", price: 80, pattern: 42, trail: [0.95, 0.75, 0.5] },
     { id: "chrome", name: "Chrome", price: 90, pattern: 38, trail: [0.9, 0.95, 1.0] },
     { id: "hologram", name: "Hologram", price: 110, pattern: 48, trail: [0.3, 1.0, 1.0] },
-    { id: "diamond", name: "Diamond", price: 150, pattern: 47, points: fibonacci(36, 0.3), trail: [0.75, 0.95, 1.0] }
+    { id: "diamond", name: "Diamond", price: 150, pattern: 47, points: fibonacci(36, 0.3), trail: [0.75, 0.95, 1.0] },
+    { id: "peanut-butter", name: "Peanut Butter", price: 70, pattern: 51, points: fibonacci(24, 0.5), trail: [0.85, 0.58, 0.28] },
+    { id: "crew-tractor", name: "Trey Tailer Crew Tractor", price: 90, pattern: 50, trail: [0.35, 0.85, 0.15] },
+    { id: "sour-patch-wings", name: "Sour Patch Wings", price: 95, pattern: 52, points: fibonacci(80, 0.6), trail: "rainbow" }
   ];
 
   // The shop lists them cheapest first (Classic, free, stays first).
@@ -184,7 +187,8 @@
         a: a,
         b: b,
         p: [level <= SECRET_KINDS ? level - 1 : Math.floor(random() * SECRET_KINDS), 3 + Math.floor(random() * 6), Math.min(1, level / 25), level >= 10 ? Math.min(1, (level - 9) / 20) : 0],
-        q: [level >= 20 ? 1 : 0, 0.3 + random() * 0.9, 0, 0]
+        // sparkles from 20; pattern speed (a little quicker each level); the level; an accent hue
+        q: [level >= 20 ? 1 : 0, 0.3 + random() * 0.9 + Math.min(1.2, level * 0.015), level, (hueA + 0.5) % 1]
       }
     };
     secretCache[level] = skin;
@@ -596,11 +600,74 @@
     "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 20.0 + 80.0 * uSecretP.z);",
     "    col = c * shade + vec3(spec) * (0.15 + 0.85 * uSecretP.z);",
     "    col += uSecretA * uSecretP.w * (0.6 + 0.4 * sin(uTime * 3.0)) * pow(1.0 - facing, 2.0);",
-    "    if (uSecretQ.x > 0.5) {",
+    "    float L = uSecretQ.z;",
+    "    vec3 accent = hue(uSecretQ.w);",
+    "    if (uSecretQ.x > 0.5) {", // 20+: sparkles, more of them each level
     "      vec3 q = p * 22.0;",
     "      float h = hash3(floor(q));",
-    "      col += vec3(step(0.93, h) * (1.0 - smoothstep(0.0, 0.3, length(fract(q) - 0.5)))) * (0.5 + 0.5 * sin(uTime * 4.0 + h * 50.0));",
+    "      col += vec3(step(0.93 - min(0.06, (L - 20.0) * 0.002), h) * (1.0 - smoothstep(0.0, 0.3, length(fract(q) - 0.5)))) * (0.5 + 0.5 * sin(uTime * 4.0 + h * 50.0));",
     "    }",
+    // Every few levels the ball gains something new on top.
+    "    if (L >= 5.0) col += accent * clamp(1.0 - abs(m - 0.5) * 2.0, 0.0, 1.0) * 0.9;", // 5+: bright seams where the colours meet
+    "    if (L >= 14.0) {", // 14+: glowing bands orbit the ball (two from 22)
+    "      float a1 = uTime * 0.9;",
+    "      float b1 = line(abs(dot(p, normalize(vec3(sin(a1), 0.6, cos(a1))))), 0.03);",
+    "      float b2 = L >= 22.0 ? line(abs(dot(p, normalize(vec3(cos(a1 * 1.3), sin(a1 * 0.7), 0.5)))), 0.025) : 0.0;",
+    "      col += accent * (b1 + b2) * 0.9;",
+    "    }",
+    "    if (L >= 25.0) col = mix(col, hue(facing * 0.8 + uTime * 0.1 + uSecretQ.w) * max(col.r, max(col.g, col.b)), 0.45);", // 25+: iridescent
+    "    if (L >= 30.0) {", // 30+: stars deep in the darker colour
+    "      vec3 sq = p * 40.0; float sh = hash3(floor(sq));",
+    "      col += (1.0 - m) * vec3(step(0.95, sh) * (1.0 - smoothstep(0.0, 0.25, length(fract(sq) - 0.5)))) * (0.6 + 0.4 * sin(uTime * 3.0 + sh * 40.0));",
+    "    }",
+    "    if (L >= 40.0) {", // 40+: lightning crawling over it
+    "      float k = fbm(p * 3.0 + vec3(0.0, uTime * 0.6, 0.0));",
+    "      col += mix(accent, vec3(1.0), 0.5) * (1.0 - smoothstep(0.0, 0.035, abs(k - 0.5))) * (0.6 + 0.4 * sin(uTime * 9.0 + k * 20.0));",
+    "    }",
+    "    if (L >= 50.0) col += hue(lon / 6.2832 + uTime * 0.3) * pow(1.0 - facing, 3.0) * 1.2;", // 50+: a rainbow rim
+    "    if (L >= 75.0) col += vec3(1.0, 0.55, 0.15) * smoothstep(0.55, 0.85, fbm(p * 4.0 + vec3(uTime * 0.8))) * pow(1.0 - facing, 1.5);", // 75+: a burning corona
+    "    if (L >= 100.0) col += accent * line(fract(acos(clamp(p.z, -1.0, 1.0)) * 2.0 - uTime * 0.8) - 0.5, 0.06) * 0.7;", // 100+: rings ripple out from the front
+    "  } else if (uPattern == 50) {", // Trey Tailer Crew Tractor: green paint and a yellow stripe round the middle, tyre treads at the poles
+    "    float band = abs(lat);",
+    "    if (band < 0.62) {",
+    "      vec3 paint = vec3(0.12, 0.55, 0.1);",
+    "      float stripe = line(abs(lat) - 0.3, 0.05);",
+    "      float rivet = line(abs(fract(lon * 12.0 / 6.2832) - 0.5), 0.04) * line(abs(lat) - 0.48, 0.03);",
+    "      col = mix(paint, vec3(1.0, 0.82, 0.1), max(stripe, rivet));",
+    "      col += vec3(1.0, 0.9, 0.3) * line(lat, 0.012);",
+    "    } else {",
+    "      float lug = fill(sin((band - 0.62) * 18.0 + abs(fract(lon * 7.0 / 6.2832) - 0.5) * 10.0));",
+    "      col = mix(vec3(0.03), vec3(0.16), lug);",
+    "      col = mix(col, vec3(1.0, 0.82, 0.1), line(band - 0.64, 0.03));",
+    "    }",
+    "    col *= shade;",
+    "    col += vec3(pow(max(dot(reflect(-v, n), uLight), 0.0), 40.0)) * 0.5;",
+    "  } else if (uPattern == 51) {", // Peanut Butter: creamy swirls, a glossy shine and roasted peanut bits
+    "    float sw = fbm(p * 2.2 + vec3(sin(lon * 2.0) * 0.6, 0.0, 0.0));",
+    "    float ridge = 0.5 + 0.5 * sin(sw * 22.0 + lat * 3.0);",
+    "    col = mix(vec3(0.62, 0.38, 0.16), vec3(0.86, 0.6, 0.3), ridge) * shade;",
+    "    for (int i = 0; i < 24; i++) {",
+    "      if (i >= uCount) break;",
+    "      float d = distance(p, uPoints[i]);",
+    "      col = mix(col, vec3(0.42, 0.24, 0.1) * shade, 1.0 - smoothstep(0.05, 0.075, d));",
+    "    }",
+    "    col += vec3(1.0, 0.92, 0.75) * pow(max(dot(reflect(-v, n), uLight), 0.0), 18.0) * (0.35 + 0.4 * ridge);",
+    "  } else if (uPattern == 52) {", // Sour Patch Wings: sour candy bands, sugar crystals and a wing on each side
+    "    float t = lat * 1.4 + 0.25 * sin(lon * 3.0);",
+    "    vec3 candy = t > 0.75 ? vec3(1.0, 0.15, 0.2) : t > 0.25 ? vec3(1.0, 0.55, 0.05) : t > -0.25 ? vec3(1.0, 0.9, 0.1) : t > -0.75 ? vec3(0.2, 0.9, 0.2) : vec3(0.15, 0.45, 1.0);",
+    "    col = candy * shade;",
+    "    float wx = abs(p.x), wy = p.y;",   // the wings: feathers fanning out on both sides
+    "    if (wx > 0.35) {",
+    "      float ang = atan(wy, wx - 0.35), r = length(vec2(wx - 0.35, wy));",
+    "      float feathers = fill(sin(ang * 9.0)) * (1.0 - smoothstep(0.55, 0.62, r + 0.15 * abs(sin(ang * 4.5)))) * step(-0.6, ang) * step(ang, 1.1);",
+    "      col = mix(col, vec3(1.0) * shade, feathers * 0.9);",
+    "    }",
+    "    for (int i = 0; i < 80; i++) {",   // sugar
+    "      if (i >= uCount) break;",
+    "      float d = distance(p, uPoints[i]);",
+    "      col += vec3(1.0) * (1.0 - smoothstep(0.01, 0.025, d)) * (0.6 + 0.4 * sin(uTime * 5.0 + float(i)));",
+    "    }",
+    "    col += vec3(pow(max(dot(reflect(-v, n), uLight), 0.0), 30.0)) * 0.4;",
     "  }",
     "  // A faint rim keeps the round shape visible where the body is black.",
     "  col += vec3(0.1) * pow(1.0 - facing, 2.5) * step(max(col.r, max(col.g, col.b)), 0.04);",

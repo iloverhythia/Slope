@@ -40,7 +40,7 @@
   var STORAGE_KEY = "slope-mode";        // the Slope mode Again plays
   var PICK_KEY = "slope-mode-pick";      // the mode selected in the picker (any)
   var SLOPE_KEYS = "Arrows or A/D to steer";
-  var PLAT_KEYS = "W A S D or arrows to roll, Space to jump";
+  var PLAT_KEYS = "W A S D to roll, Space to jump, arrows to look around";
   var GROUPS = [{ id: "slope", name: "Slope" }, { id: "platformer", name: "Platformer", tag: "New" }];
   var MODES = [
     { id: "classic", group: "slope", name: "Classic", text: "The original: the slope, your ball and nothing else in the way.", keys: SLOPE_KEYS },
@@ -49,7 +49,7 @@
     { id: "rush", group: "slope", name: "Gem Rush", text: "60 seconds to grab every gem you can. Three times the gems, and they fly to you.", keys: SLOPE_KEYS },
     { id: "legacy", group: "slope", name: "Legacy", text: "The original steering: the ball picks up speed sideways while you hold a key, and keeps sliding when you let go.", keys: SLOPE_KEYS },
     { id: "plat-endless", group: "platformer", name: "Endless", play: "Play Endless",
-      text: "A 3D platformer in Slope's world. Roll, jump the gaps and dodge everything red on a course that never ends and gets harder the further you go.", keys: PLAT_KEYS },
+      text: "A 3D platformer in Slope's world. Roll, jump the gaps and dodge everything red on a winding course that never ends, and gets harder and faster the further you go.", keys: PLAT_KEYS },
     { id: "plat-adventure", group: "platformer", name: "Adventure", play: "Choose a level",
       text: "Platformer levels with a finish line: gaps, hurdles, spikes, lifts, sweepers, lasers, bounce pads and more, one new thing a level. Beat one to unlock the next.", keys: PLAT_KEYS }
   ];
@@ -516,8 +516,11 @@
     x.fillRect(0, 0, W, H);
     var vy = H * 0.3, cx = W / 2, half = W * 0.2;
     // A point at depth z (1 is the viewer's feet), sideways lateral, height h.
-    function at(z, lateral, h) { return [cx + lateral * half / z, vy + (H * 0.95 - vy - h * H * 0.42) / z]; }
     var speed = 5, travel = t * speed, ballAt = 1.9;
+    // The course bends left and right; the view follows the bend at the ball.
+    function bend(z) { return 1.6 * Math.sin((z + travel) / 6); }
+    var here = bend(ballAt);
+    function at(z, lateral, h) { return [cx + (lateral + (bend(z) - here) * Math.min(1, (z - 1) / 4)) * half / z, vy + (H * 0.95 - vy - h * H * 0.42) / z]; }
     // The pieces in view, far first.
     var parts = [];
     for (var k = -1; k < 5; k++) {

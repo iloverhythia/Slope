@@ -469,3 +469,59 @@
 .slope-shop .slope-upgrade.is-unlock:not(.is-owned):not(.is-locked) {
   box-shadow: inset 0 0 0 2px var(--slope-color), 0 0 10px -2px var(--rarity);
 }
+
+/* Gem Prestige (upgrades.js): a box above the tree. */
+.slope-prestige {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: min(520px, 100%);
+  margin: 4px auto 0;
+  padding: 14px 16px;
+  box-shadow: inset 0 0 0 2px var(--slope-color);
+  text-align: center;
+}
+
+.slope-prestige-title {
+  margin: 0;
+  font-family: var(--slope-display);
+  font-size: 26px;
+  font-weight: normal;
+  line-height: 1;
+}
+
+.slope-prestige-now {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-prestige-note {
+  color: var(--slope-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.slope-prestige-btn {
+  min-height: 46px;
+  padding: 0 22px;
+  font-size: 20px;
+}
+
+/* Asking to be sure: the game's red. */
+.slope-shop .slope-prestige-btn.is-armed {
+  background: var(--slope-hover);
+  box-shadow: inset 0 0 0 2px var(--slope-hover);
+  color: var(--slope-ground);
+}
+
+.slope-shop .slope-prestige-btn:disabled,
+.slope-shop .slope-prestige-btn:disabled:hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: not-allowed;
+}
+
+.slope-prestige-status:empty {
+  display: none;
+}

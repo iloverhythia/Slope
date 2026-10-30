@@ -85,9 +85,11 @@
     ["Gems spent", function (p) { return fmt(p.spent); }],
     ["Most gems in a run", function (p) { return fmt(p.bestGems); }],
     ["Gem multiplier", function () {
-      var m = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (window.SlopeMerge ? window.SlopeMerge.boost() : 1);
+      var m = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *
+        (profile.boosts ? profile.boosts().gems : 1);
       return "x" + m.toFixed(2);
     }],
+    ["Gem Prestige", function (p) { return p.prestige ? fmt(p.prestige) + " (" + fmt(p.prestiges) + (p.prestiges === 1 ? " reset)" : " resets)") : "None"; }],
     ["Total XP", function (p) { return fmt(p.xp); }],
     ["Longest run", function (p) { return fmtDuration(p.longestRun); }],
     ["Average run", function (p) { return fmtDuration(p.runs ? p.playSeconds / p.runs : 0); }],

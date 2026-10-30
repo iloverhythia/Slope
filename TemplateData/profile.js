@@ -21,6 +21,10 @@
  *   SlopeProfile.recordModeRun(mode, score, { dodged })   a run in a game mode (modes.js)
  *   SlopeProfile.recordPlatformer(run)   { mode, score, xpScore, gems, golds, rares, seconds, jumps } -> { xp, levelBefore, levelAfter }
  *   SlopeProfile.completePlatLevel(n, seconds)   platformer Adventure level n beaten: unlocks n + 1
+ *   SlopeProfile.prestigeGain()    prestige points a Gem Prestige would give now
+ *   SlopeProfile.prestige()        Gem Prestige: resets the merge game and the upgrade tree
+ *                                  for prestige points; returns the points gained (0: not yet)
+ *   SlopeProfile.boosts()          { gems, xp, mergeStart } from prestige points
  *   SlopeProfile.xpFor(score)      XP a run with that score earns
  *   SlopeProfile.addGems(n)            n can be fractional (gem multiplier): the
  *                                      fraction is kept; returns whole gems added
@@ -86,7 +90,21 @@
       upgrades: [], gemBank: 0, backgrounds: [], background: "none",
       slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null),
       gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null),
-      rares: cleanRares(null), platUnlocked: 1, platWins: 0, platTimes: cleanTimes(null) };
+      rares: cleanRares(null), platUnlocked: 1, platWins: 0, platTimes: cleanTimes(null),
+      prestige: 0, prestiges: 0, secretBest: 0 };
+  }
+
+  // Gem Prestige: each point is +25% gems and +10% XP for good, and every 3
+  // points new merge balls start a level higher (up to 10).
+  var PRESTIGE_GEMS = 0.25, PRESTIGE_XP = 0.1, PRESTIGE_START = 3;
+  function boostsFor(points) {
+    return { gems: 1 + PRESTIGE_GEMS * points, xp: 1 + PRESTIGE_XP * points, mergeStart: Math.min(10, 1 + Math.floor(points / PRESTIGE_START)) };
+  }
+  // A point for every 5 levels of your best merge ball, and for every 3
+  // tiers of the upgrade tree you completed.
+  function prestigeGain(d) {
+    var centres = d.upgrades.filter(function (id) { return /C$/.test(id); }).length;
+    return Math.floor(d.merge.best / 5) + Math.floor(centres / 3);
   }
 
   // Rare gems picked up, by rarity (gems.js).
@@ -161,6 +179,9 @@
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
     });
     b.advUnlocked = Math.max(1, Math.floor(b.advUnlocked));
+    b.prestige = Math.floor(b.prestige);
+    b.prestiges = Math.floor(b.prestiges);
+    b.secretBest = Math.max(Math.floor(b.secretBest), b.merge.best);
     b.platUnlocked = Math.max(1, Math.floor(b.platUnlocked));
     b.gems = Math.floor(b.gems);
     b.gemBank = b.gemBank < 1 ? b.gemBank : 0;
@@ -295,7 +316,7 @@
 
   // XP for a score; the upgrade tree can add to it (upgrades.js).
   function xpFor(score) {
-    var boost = window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1;
+    var boost = (window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1) * boostsFor(data.prestige).xp;
     return Math.round(Math.max(0, Math.floor(score || 0)) * XP_PER_POINT * boost);
   }
 
@@ -455,6 +476,7 @@
   // board moves and clicks are only saved.
   function saveMerge(m, notify) {
     data.merge = cleanMerge(m);
+    data.secretBest = Math.max(data.secretBest, data.merge.best);
     save();
     if (notify) changed();
   }
@@ -472,11 +494,26 @@
   function equipSkin(id) {
     var secret = /^secret-([1-9][0-9]{0,5})$/.exec(id);
     if (secret) {
-      if (+secret[1] > data.merge.best) return;   // not reached in the merge game yet
+      if (+secret[1] > Math.max(data.merge.best, data.secretBest)) return;   // not reached in the merge game yet
     } else if (!isSkinId(id) || (id !== "classic" && data.skins.indexOf(id) === -1)) return;
     data.skin = id;
     save();
     changed();
+  }
+
+  // Gem Prestige: the merge game (board, balls, its upgrades) and the upgrade
+  // tree start over; gems, skins (secret ones too) and everything else stay.
+  function prestige() {
+    var gain = prestigeGain(data);
+    if (gain < 1) return 0;
+    data.secretBest = Math.max(data.secretBest, data.merge.best);
+    data.prestige += gain;
+    data.prestiges += 1;
+    data.merge = cleanMerge(null);
+    data.upgrades = [];
+    save();
+    changed();
+    return gain;
   }
 
   function completeLevel(n) {
@@ -512,6 +549,9 @@
       rares: rareNames().reduce(function (o, k) { o[k] = a.rares[k] + b.rares[k]; return o; }, {}),
       platUnlocked: Math.max(a.platUnlocked, b.platUnlocked),
       platWins: a.platWins + b.platWins,
+      prestige: a.prestige + b.prestige,
+      prestiges: a.prestiges + b.prestiges,
+      secretBest: Math.max(a.secretBest, b.secretBest),
       platTimes: Object.keys(a.platTimes).concat(Object.keys(b.platTimes)).reduce(function (o, k) {
         var x = a.platTimes[k], y = b.platTimes[k];
         o[k] = x && y ? Math.min(x, y) : x || y;
@@ -657,6 +697,10 @@
     saveMerge: saveMerge,
     recordModeRun: recordModeRun,
     recordPlatformer: recordPlatformer,
+    prestigeGain: function () { return prestigeGain(data); },
+    prestige: prestige,
+    boosts: function () { return boostsFor(data.prestige); },
+    boostsFor: boostsFor,
     completePlatLevel: completePlatLevel,
     spendGems: spendGems,
     equipSlope: equipSlope,

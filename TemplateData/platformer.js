@@ -7,9 +7,13 @@
  *   Adventure   a ladder of levels with a finish line; beating one unlocks
  *               the next (and keeps your best time)
  *
- * W/A/S/D or the arrow keys roll the ball, Space jumps (hold it for a higher
- * jump), Esc pauses. On a touch screen, buttons do the same. Red things
- * kill, and so does falling off.
+ * W/A/S/D roll the ball the way the camera looks, Space jumps (hold it for
+ * a higher jump), the arrow keys look around (left and right turn the
+ * camera, up and down tilt it; dragging does the same), Esc pauses. The
+ * camera follows the course round its corners and comes back behind the
+ * ball a moment after you stop looking around. On a touch screen, buttons
+ * roll and jump and a drag looks around. Red things kill, and so does
+ * falling off. Endless gets faster the further you go.
  *
  * The courses and the physics are in platformer-core.js. This file draws
  * them in a WebGL2 canvas over the game (which is paused meanwhile): black
@@ -36,10 +40,13 @@
   var LEVEL_STEP = 18;
   var R = core.R;
   var KEYS = {
-    KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down",
-    KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right",
-    Space: "jump"
+    KeyW: "fwd", KeyS: "back", KeyA: "left", KeyD: "right", Space: "jump",
+    ArrowLeft: "lookLeft", ArrowRight: "lookRight", ArrowUp: "lookUp", ArrowDown: "lookDown"
   };
+  var LOOK_TURN = 2.2;          // radians a second, arrow keys
+  var LOOK_TILT = 1.2;
+  var LOOK_BACK = 1.4;          // seconds after looking around before the camera comes back
+  var CAM_DIST = 4.8, CAM_TILT = 0.45, TILT_MIN = 0.08, TILT_MAX = 1.15;
 
   // --- Matrices (column-major) -----------------------------------------------------------
 
@@ -81,9 +88,8 @@
     return [x[0], x[1], x[2], y[0], y[1], y[2], z[0], z[1], z[2]];
   }
 
-  // The courses use x to the right; the camera looks down +z, where screen
-  // right is world -x. So everything is drawn with x flipped.
-  function W(p) { return [-p[0], p[1], p[2]]; }
+  // World positions as they are (kept as a hook for the drawing code).
+  function W(p) { return p; }
 
   // --- Shaders -------------------------------------------------------------------------------
 
@@ -94,13 +100,14 @@
     "uniform mat4 uVP;",
     "uniform vec3 uCentre, uHalf;",
     "uniform float uYaw;",
-    "out vec3 vLocal, vNormal, vWorld;",
+    "out vec3 vLocal, vNormal, vLight, vWorld;",
     "void main() {",
     "  vec3 l = aPos * uHalf;",
     "  float c = cos(uYaw), s = sin(uYaw);",
     "  vec3 r = vec3(c * l.x - s * l.z, l.y, s * l.x + c * l.z);",
     "  vLocal = l;",
     "  vNormal = aNormal;",
+    "  vLight = vec3(c * aNormal.x - s * aNormal.z, aNormal.y, s * aNormal.x + c * aNormal.z);",
     "  vWorld = uCentre + r;",
     "  gl_Position = uVP * vec4(vWorld, 1.0);",
     "}"
@@ -111,8 +118,9 @@
   var BOX_FS = [
     "#version 300 es",
     "precision highp float;",
-    "in vec3 vLocal, vNormal, vWorld;",
+    "in vec3 vLocal, vNormal, vLight, vWorld;",
     "uniform vec3 uHalf, uColor, uCam;",
+    "uniform float uAlong;",
     "uniform int uStyle;",
     "uniform float uTime, uGlow;",
     "uniform sampler2D uFloor, uEdge, uWall;",
@@ -126,8 +134,9 @@
     "  float aa = fwidth(mid) + 1e-4;",
     "  float edge = 1.0 - smoothstep(0.05 - aa, 0.05 + aa, mid);",
     "  vec3 n = abs(vNormal);",
-    "  vec2 uv = n.y > 0.5 ? vWorld.xz : n.x > 0.5 ? vWorld.zy : vWorld.xy;",
-    "  float light = 0.55 + 0.45 * max(0.0, dot(vNormal, normalize(vec3(0.3, 0.9, -0.4))));",
+    "  vec3 q = vec3(vLocal.x, vLocal.y, vLocal.z + uAlong);",   // tiles run along the course
+    "  vec2 uv = n.y > 0.5 ? q.xz : n.x > 0.5 ? q.zy : q.xy;",
+    "  float light = 0.55 + 0.45 * max(0.0, dot(vLight, normalize(vec3(0.3, 0.9, -0.4))));",
     "  vec3 c;",
     "  if (uStyle == 5) {",                       // the ball's shadow: a dark disc with a ring
     "    float d = length(vLocal.xz) / uHalf.x;",
@@ -148,7 +157,7 @@
     "    c = texture(uWall, uv * 0.9).rgb * light;",
     "    c = mix(c + RED * 0.06, RED, edge);",
     "  } else if (uStyle == 3) {",                  // bounce pad: chevrons running forward
-    "    float v = fract(vWorld.z * 0.8 - abs(vLocal.x) * 0.5 - uTime * 2.0);",
+    "    float v = fract(q.z * 0.8 - abs(vLocal.x) * 0.5 - uTime * 2.0);",
     "    float band = smoothstep(0.0, 0.05, v) - smoothstep(0.35, 0.4, v);",
     "    c = mix(vec3(0.0, 0.06, 0.0), NEON, band) * light;",
     "    c = mix(c, NEON, edge);",
@@ -309,7 +318,7 @@
     var gl = canvas.getContext("webgl2", { antialias: true, alpha: false, powerPreference: "high-performance" });
     if (!gl) return null;
     var g = { gl: gl };
-    g.box = program(gl, BOX_VS, BOX_FS, ["uVP", "uCentre", "uHalf", "uYaw", "uColor", "uCam", "uStyle", "uTime", "uGlow", "uFloor", "uEdge", "uWall"]);
+    g.box = program(gl, BOX_VS, BOX_FS, ["uVP", "uCentre", "uHalf", "uYaw", "uColor", "uCam", "uStyle", "uTime", "uGlow", "uFloor", "uEdge", "uWall", "uAlong"]);
     g.facet = program(gl, FACET_VS, FACET_FS, ["uVP", "uCentre", "uScale", "uYaw", "uFace", "uEdge", "uCam"]);
     g.cube = vao(gl, cubeMesh(), [3, 3]);
     g.pyramid = vao(gl, pyramidMesh(), [3, 3, 3]);
@@ -363,6 +372,8 @@
   var jumpQueued = false;
   var acc = 0, lastFrame = 0, loop = 0;
   var cam = null;
+  var look = { yaw: 0, tilt: 0, last: -1e9 };   // looking around: offsets from behind the ball
+  var camYaw = 0, courseYaw = 0;
   var spin = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   var rarity = {};            // gem id -> rarity index (rolled when first seen)
   var tally = null;           // gems picked up this run
@@ -401,6 +412,9 @@
     jumpQueued = false;
     acc = 0;
     cam = null;
+    look = { yaw: 0, tilt: 0, last: -1e9 };
+    courseYaw = 0;
+    lastCam = 0;
     spin = [1, 0, 0, 0, 1, 0, 0, 0, 1];
     startedAt = performance.now();
     state = "playing";
@@ -420,11 +434,30 @@
     return true;
   }
 
+  // The keys as a direction in the world: forward is the way the camera looks.
   function input() {
-    var x = (held.right ? 1 : 0) - (held.left ? 1 : 0), z = (held.up ? 1 : 0) - (held.down ? 1 : 0);
+    var side = (held.right ? 1 : 0) - (held.left ? 1 : 0), fwd = (held.fwd ? 1 : 0) - (held.back ? 1 : 0);
+    var fx = Math.sin(camYaw), fz = Math.cos(camYaw);   // forward on the ground
+    var rx = -fz, rz = fx;                              // right on screen
     var jump = jumpQueued;
     jumpQueued = false;
-    return { x: x, z: z, jump: jump, hold: !!held.jump };
+    return { x: fx * fwd + rx * side, z: fz * fwd + rz * side, jump: jump, hold: !!held.jump };
+  }
+
+  // Arrow keys (and drags) look around; a moment after, the camera comes back.
+  function lookAround(dt, now) {
+    var turn = (held.lookLeft ? 1 : 0) - (held.lookRight ? 1 : 0), tilt = (held.lookDown ? 1 : 0) - (held.lookUp ? 1 : 0);
+    if (turn || tilt) {
+      look.yaw += turn * LOOK_TURN * dt;
+      look.tilt += tilt * LOOK_TILT * dt;
+      look.last = now;
+    } else if (now - look.last > LOOK_BACK * 1000) {
+      var k = 1 - Math.exp(-dt * 2.5);
+      look.yaw -= look.yaw * k;
+      look.tilt -= look.tilt * k;
+    }
+    look.yaw = Math.max(-Math.PI, Math.min(Math.PI, look.yaw));
+    look.tilt = Math.max(TILT_MIN - CAM_TILT, Math.min(TILT_MAX - CAM_TILT, look.tilt));
   }
 
   function frame(now) {
@@ -448,9 +481,10 @@
         }
         if (steps >= MAX_STEPS) acc = 0;
         if (run.course.endless) {
-          run.course.extend(run.ball.z + VIEW + 30);
-          if (run.ball.z - run.lastPrune > 60 || run.lastPrune === undefined) { run.course.prune(run.ball.z - 30); run.lastPrune = run.ball.z; }
+          run.course.extend(run.s + VIEW + 30);
+          if (run.lastPrune === undefined || run.s - run.lastPrune > 60) { run.course.prune(run.s - 30); run.lastPrune = run.s; }
         }
+        lookAround(dt, now);
         roll(dt);
         renderHud();
         if (run.dead || run.won) end();
@@ -518,7 +552,7 @@
   }
 
   function metres() { return Math.max(0, Math.floor(run.furthest - 2)); }
-  function progress() { return Math.max(0, Math.min(1, (run.furthest - 2) / (run.course.finishZ - 2))); }
+  function progress() { return Math.max(0, Math.min(1, (run.furthest - 2) / (run.course.length - 2))); }
 
   function end() {
     state = "over";
@@ -599,14 +633,25 @@
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
   }
 
-  function camera() {
+  // Behind the ball, facing the way the course goes where the ball is (turned
+  // by looking around), a little above it; slow to follow jumps up and down.
+  var lastCam = 0;
+  function camera(time) {
     var b = run.ball, target = [b.x, Math.max(b.floorY + R, Math.min(b.y, b.floorY + 2)), b.z];
-    if (!cam) cam = target.slice();
-    var k = reduceMotion.matches ? 1 : 0.12;
-    cam[0] += (target[0] * 0.75 - cam[0]) * k;
-    cam[1] += (target[1] - cam[1]) * (k * 0.6);
-    cam[2] = b.z;
-    var eye = W([cam[0], cam[1] + 2.3, cam[2] - 4.6]), at = W([cam[0], cam[1] + 0.2, cam[2] + 6]);
+    var dt = lastCam ? Math.min(0.1, Math.max(0, time - lastCam)) : 0;
+    lastCam = time;
+    if (b.ground) { var h = core.heading(b.ground); courseYaw = Math.atan2(h[0], h[1]); }
+    if (!cam) { cam = target.slice(); camYaw = courseYaw; }
+    // Smoothing by time, so slow and fast screens turn alike.
+    function ease(rate) { return reduceMotion.matches ? 1 : 1 - Math.exp(-dt * rate); }
+    cam[0] = target[0];
+    cam[2] = target[2];
+    cam[1] += (target[1] - cam[1]) * ease(4.5);
+    var want = courseYaw + look.yaw, diff = Math.atan2(Math.sin(want - camYaw), Math.cos(want - camYaw));
+    camYaw += diff * ease(performance.now() - look.last < 200 ? 30 : 6);
+    var tilt = CAM_TILT + look.tilt, fx = Math.sin(camYaw), fz = Math.cos(camYaw);
+    var eye = [cam[0] - fx * CAM_DIST * Math.cos(tilt), cam[1] + 0.3 + CAM_DIST * Math.sin(tilt), cam[2] - fz * CAM_DIST * Math.cos(tilt)];
+    var at = [cam[0] + fx * 6, cam[1] + 0.2, cam[2] + fz * 6];
     return { eye: eye, at: at };
   }
 
@@ -616,7 +661,7 @@
     resize();
     if (time - lastTiles > 1) { updateTiles(); lastTiles = time; }
     var cv = els.canvas, aspect = cv.width / cv.height;
-    var view = camera();
+    var view = camera(time);
     var proj = perspective((aspect < 1 ? 72 : 58) * Math.PI / 180, aspect, 0.1, VIEW + 20);
     var vp = multiply(proj, lookAt(view.eye, view.at, [0, 1, 0]));
     gl.viewport(0, 0, cv.width, cv.height);
@@ -636,7 +681,8 @@
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
 
-    var t = run.t, zMin = run.ball.z - 12, zMax = run.ball.z + VIEW;
+    var t = run.t, bx = run.ball.x, bz = run.ball.z;
+    function inView(x, z, reach) { var dx = x - bx, dz = z - bz, r = VIEW + reach; return dx * dx + dz * dz < r * r; }
     var box = gfx.box;
     gl.useProgram(box.p);
     gl.bindVertexArray(gfx.cube.vao);
@@ -648,48 +694,49 @@
       gl.bindTexture(gl.TEXTURE_2D, gfx.textures[s[1]]);
       gl.uniform1i(box.u[s[0]], s[2]);
     });
-    function boxAt(c, hx, hy, hz, style, yaw, glow) {
+    function boxAt(c, hx, hy, hz, style, yaw, glow, along) {
       gl.uniform3fv(box.u.uCentre, W(c));
       gl.uniform3f(box.u.uHalf, hx, hy, hz);
       gl.uniform1i(box.u.uStyle, style);
       gl.uniform1f(box.u.uYaw, yaw || 0);
+      gl.uniform1f(box.u.uAlong, along || 0);
       gl.uniform1f(box.u.uGlow, glow === undefined ? 1 : glow);
       gl.drawArrays(gl.TRIANGLES, 0, 36);
     }
     var spikes = [], gate = null;
     run.course.items.forEach(function (o) {
-      var reach = (o.hz || 0) + (o.move && o.move.ax === 2 ? o.move.amp : 0);
-      if (o.z + reach < zMin || o.z - reach > zMax) return;
-      var c = core.at(o, t, run);
+      if (!inView(o.x, o.z, o.reach || 0)) return;
+      var c = core.at(o, t, run), yaw = o.yaw || 0, along = (o.s || 0) % 64;
       switch (o.kind) {
         case "floor":
-          boxAt(c, o.hx, o.hy, o.hz, 0);
+          boxAt(c, o.hx, o.hy, o.hz, 0, yaw, 1, along);
           // A tower under it, fading into the dark.
-          if (o.hz > 1.5) boxAt([c[0], c[1] - o.hy - 20, c[2]], Math.min(0.5, o.hx * 0.3), 20, Math.min(0.5, o.hz * 0.3), 8);
+          if (o.hz > 1.5) boxAt([c[0], c[1] - o.hy - 20, c[2]], Math.min(0.5, o.hx * 0.3), 20, Math.min(0.5, o.hz * 0.3), 8, yaw);
           break;
         case "crumble":
           var touched = run.touched[o.id];
           if (touched !== undefined && t > touched + core.CRUMBLE + 1.2) break;
-          c[0] += core.shake(o, t, run);
-          boxAt(c, o.hx, o.hy, o.hz, 7);
+          var sh = core.shake(o, t, run);
+          c[0] += sh * o.ux; c[2] += sh * o.uz;
+          boxAt(c, o.hx, o.hy, o.hz, 7, yaw, 1, along);
           break;
-        case "lift": boxAt(c, o.hx, o.hy, o.hz, 2); break;
-        case "pad": boxAt(c, o.hx, o.hy, o.hz, 3); break;
-        case "hurdle": case "slider": case "post": boxAt(c, o.hx, o.hy, o.hz, 1); break;
-        case "laser": boxAt(c, o.hx, o.hy, o.hz, 4, 0, core.laserOn(o, t) ? 1 : 0); break;
+        case "lift": boxAt(c, o.hx, o.hy, o.hz, 2, yaw, 1, along); break;
+        case "pad": boxAt(c, o.hx, o.hy, o.hz, 3, yaw, 1, along); break;
+        case "hurdle": case "slider": case "post": boxAt(c, o.hx, o.hy, o.hz, 1, yaw); break;
+        case "laser": boxAt(c, o.hx, o.hy, o.hz, 4, yaw, core.laserOn(o, t) ? 1 : 0); break;
         case "sweeper":
-          // Drawn rotated: the bar is along x, turned about y (x is flipped on screen).
-          boxAt(c, o.arm, o.thick, o.thick, 1, Math.PI - core.sweeperAngle(o, t));
+          // The bar lies along its angle (a box's x axis turned by yaw goes to (cos, sin)).
+          boxAt(c, o.arm, o.thick, o.thick, 1, core.sweeperAngle(o, t));
           break;
         case "spikes": spikes.push(o); break;
         case "gate": gate = { o: o, c: c }; break;
       }
     });
     if (gate) {
-      var g = gate.o, gc = gate.c;
-      boxAt([gc[0] - g.hx + 0.15, gc[1], gc[2]], 0.15, g.hy, 0.15, 6);
-      boxAt([gc[0] + g.hx - 0.15, gc[1], gc[2]], 0.15, g.hy, 0.15, 6);
-      boxAt([gc[0], gc[1] + g.hy - 0.25, gc[2]], g.hx, 0.25, 0.15, 6);
+      var g = gate.o, gc = gate.c, side = g.hx - 0.15;
+      boxAt([gc[0] - g.ux * side, gc[1], gc[2] - g.uz * side], 0.15, g.hy, 0.15, 6, g.yaw);
+      boxAt([gc[0] + g.ux * side, gc[1], gc[2] + g.uz * side], 0.15, g.hy, 0.15, 6, g.yaw);
+      boxAt([gc[0], gc[1] + g.hy - 0.25, gc[2]], g.hx, 0.25, 0.15, 6, g.yaw);
     }
 
     // Spikes and gems: faceted.
@@ -700,20 +747,21 @@
     gl.bindVertexArray(gfx.pyramid.vao);
     gl.uniform3f(facet.u.uFace, 0.25, 0.01, 0.0);
     gl.uniform3f(facet.u.uEdge, 1.0, 0.08, 0.05);
-    gl.uniform1f(facet.u.uYaw, 0);
     spikes.forEach(function (o) {
       var nx = Math.max(1, Math.round(o.hx / 0.35)), nz = Math.max(1, Math.round(o.hz / 0.35));
       var sx = o.hx / nx, sz = o.hz / nz;
+      gl.uniform1f(facet.u.uYaw, o.yaw || 0);
       gl.uniform3f(facet.u.uScale, sx, o.hy, sz);
       for (var i = 0; i < nx; i++) for (var j = 0; j < nz; j++) {
-        gl.uniform3fv(facet.u.uCentre, W([o.x - o.hx + sx * (2 * i + 1), o.y, o.z - o.hz + sz * (2 * j + 1)]));
+        var lx = -o.hx + sx * (2 * i + 1), lz = -o.hz + sz * (2 * j + 1);
+        gl.uniform3fv(facet.u.uCentre, W([o.x + lx * o.ux + lz * o.vx, o.y, o.z + lx * o.uz + lz * o.vz]));
         gl.drawArrays(gl.TRIANGLES, 0, gfx.pyramid.count);
       }
     });
     gl.bindVertexArray(gfx.gem.vao);
     var api = gemsApi();
     run.course.gems.forEach(function (gm) {
-      if (run.got[gm.id] || gm.z < run.ball.z - 0.8 || gm.z > zMax) return;   // passed ones would hang in front of the camera
+      if (run.got[gm.id] || gm.s < run.s - 0.8 || !inView(gm.x, gm.z, 0)) return;   // passed ones would hang in front of the camera
       var r = rarityOf(gm), k = api ? api.rarities[r] : { size: 1, spin: 1 };
       var col = api ? api.colours(r, time) : { edge: [0.3, 1, 0.3], face: [0, 0.16, 0.01] };
       var s = 0.36 * (k.size || 1);
@@ -758,9 +806,10 @@
   function floorUnder(b, t) {
     var top = null;
     run.course.items.forEach(function (o) {
-      if (!o.solid || Math.abs(o.z - b.z) > o.hz + 3 + (o.move ? o.move.amp : 0)) return;
-      var c = core.at(o, t, run);
-      if (Math.abs(b.x - c[0]) > o.hx || Math.abs(b.z - c[2]) > o.hz) return;
+      var dx = o.x - b.x, dz = o.z - b.z, r = (o.reach || 0) + 1;
+      if (!o.solid || dx * dx + dz * dz > r * r) return;
+      var c = core.at(o, t, run), l = core.local(o, c, b);
+      if (Math.abs(l[0]) > o.hx || Math.abs(l[2]) > o.hz) return;
       var y = c[1] + o.hy;
       if (y <= b.y + 0.05 && (top === null || y > top)) top = y;
     });
@@ -806,11 +855,30 @@
     root.innerHTML = '<canvas class="slope-plat-canvas" aria-label="Platformer"></canvas>';
     document.body.appendChild(root);
 
+    // Dragging on the game looks around (mouse or finger).
+    var canvas = root.querySelector("canvas"), drag = null;
+    canvas.addEventListener("pointerdown", function (e) {
+      if (state !== "playing") return;
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      canvas.setPointerCapture(e.pointerId);
+      canvas.classList.add("is-dragging");
+    });
+    canvas.addEventListener("pointermove", function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      look.yaw -= (e.clientX - drag.x) * 0.006;
+      look.tilt += (e.clientY - drag.y) * 0.004;
+      look.last = performance.now();
+      drag.x = e.clientX; drag.y = e.clientY;
+    });
+    ["pointerup", "pointercancel"].forEach(function (t) {
+      canvas.addEventListener(t, function () { drag = null; canvas.classList.remove("is-dragging"); });
+    });
+
     // The controls, for the first seconds of a run (in the UI root, for its colours).
     var keys = document.createElement("p");
     keys.className = "slope-plat-keys";
     keys.hidden = true;
-    keys.textContent = "W A S D or arrows to roll  \u00b7  Space to jump (hold for higher)  \u00b7  Esc to pause";
+    keys.textContent = "W A S D to roll  \u00b7  Space to jump (hold for higher)  \u00b7  Arrows or drag to look around  \u00b7  Esc to pause";
     ui.root.appendChild(keys);
 
     var hud = document.createElement("div");
@@ -827,7 +895,7 @@
     touch.hidden = true;
     touch.innerHTML =
       '<div class="slope-plat-pad">' +
-        [["up", "Forward", "^"], ["left", "Left", "<"], ["right", "Right", ">"], ["down", "Back", "v"]].map(function (b) {
+        [["fwd", "Forward", "^"], ["left", "Left", "<"], ["right", "Right", ">"], ["back", "Back", "v"]].map(function (b) {
           return '<button type="button" class="slope-btn slope-plat-touch-' + b[0] + '" data-key="' + b[0] + '" aria-label="' + b[1] + '">' + b[2] + "</button>";
         }).join("") +
       "</div>" +
@@ -995,11 +1063,12 @@
     if (mode === "adventure") {
       title = "Level " + levelN + "  " + core.level(levelN).title;
       frac = progress();
-      line = Math.max(0, Math.ceil(run.course.finishZ - run.furthest)) + " m to go  \u00b7  " + run.t.toFixed(1) + " s";
+      line = Math.max(0, Math.ceil(run.course.length - run.furthest)) + " m to go  \u00b7  " + run.t.toFixed(1) + " s";
     } else {
       title = "Endless  " + fmt(metres()) + " m";
       frac = best ? Math.min(1, metres() / best) : 0;
-      line = best ? (metres() > best ? "New best!" : "Best " + fmt(best) + " m") : "Your first run";
+      line = (best ? (metres() > best ? "New best!" : "Best " + fmt(best) + " m") : "Your first run") +
+        "  \u00b7  speed x" + (core.speed(run) / core.SPEED).toFixed(2);
     }
     if (tally && tally.gems) line += "  \u00b7  +" + fmt(tally.gems) + " gems";
     if (els.hudTitle.textContent !== title) els.hudTitle.textContent = title;
@@ -1103,6 +1172,7 @@
     state: function () {
       return run ? { mode: mode, level: levelN, state: state, t: run.t, ball: Object.assign({}, run.ball, { ground: run.ball.ground ? run.ball.ground.kind : null }),
         dead: run.dead, won: run.won, jumps: run.jumps, metres: metres(), progress: mode === "adventure" ? progress() : null, gems: tally ? tally.gems : 0,
+        s: run.s, camYaw: camYaw, courseYaw: courseYaw, look: Object.assign({}, look), speed: core.speed(run),
         items: run.course.items.length } : null;
     },
     run: function () { return run; },

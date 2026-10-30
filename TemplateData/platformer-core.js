@@ -7,8 +7,12 @@
  * the ball is 1 across.
  *
  * A course is a list of items (platforms, red hazards, lifts, pads...), gems
- * and a finish line. Adventure level n is always the same course; Endless
- * builds its course ahead of the ball as it goes, harder the further it gets.
+ * and a finish line. It winds: every so often it turns left or right on a
+ * wide corner platform, so each stretch has its own heading and every item
+ * its own frame (sideways axis u, forward axis v; boxes are boxes in that
+ * frame). Adventure level n is always the same course; Endless builds its
+ * course ahead of the ball as it goes, harder and faster the further it gets
+ * (top speed up to 1.6 times at 1500 m).
  *
  * Every course is built within what the ball can do, with room to spare:
  * at full speed (7.5 m/s) a jump rises 2 m and carries 5.6 m on the flat, so
@@ -19,9 +23,11 @@
  *
  *   SlopePlatCore.level(n)        { n, kinds, fresh, title, length, d } for Adventure level n
  *   SlopePlatCore.buildLevel(n)   the course of Adventure level n
- *   SlopePlatCore.endless(seed)   an Endless course: course.extend(z) builds it up to z
+ *   SlopePlatCore.endless(seed)   an Endless course: course.extend(s) builds it up to s metres
  *   SlopePlatCore.newRun(course)  a run on the course, the ball at the start
- *   SlopePlatCore.step(run, input, dt)   input { x, z: -1..1, jump: pressed this step, hold: held }
+ *   SlopePlatCore.step(run, input, dt)   input { x, z: -1..1 (a world direction), jump: pressed this step, hold: held }
+ *   SlopePlatCore.speed(run)      the run's top speed now
+ *   SlopePlatCore.heading(item)   the forward direction of an item's stretch of course [x, z]
  *   SlopePlatCore.at(item, t, run)   where a (moving or crumbling) item is at time t: [x, y, z]
  *   SlopePlatCore.copyRun(run)    a copy to try moves on (the course is shared, never changed)
  *   SlopePlatCore.KINDS / INTRO   obstacle kinds and the order levels bring them in
@@ -41,6 +47,7 @@
   var FALL = 14;                // this far below the last floor: fallen off
   var CRUMBLE = 0.45;           // seconds a crumbling tile holds after it is touched
   var REST = 4;                 // floor between obstacles
+  var MAX_HEADING = 1.4;        // radians the course may turn away from its first direction
 
   var KINDS = {
     gap: { name: "Gaps", text: "Jump the gaps", hit: "" },
@@ -90,33 +97,70 @@
 
   // --- Building courses ---------------------------------------------------------------
 
-  // The builder keeps a cursor: the far end of the last floor (z), its top (y),
-  // its centre (x) and width.
+  // The builder keeps a cursor in the current stretch of course: the far end
+  // of the last floor (z, forward), its top (y), its centre (x, sideways) and
+  // width. A stretch starts at a point (ox, oz) with a heading; D is how far
+  // along the whole course that point is.
   function Builder(seed) {
     this.random = seeded(seed);
     this.items = [];
     this.gems = [];
+    this.path = [];          // the course's centre line: { x, y, z, s } (for tools and bots)
+    this.nextItem = 0; this.nextGem = 0;
     this.z = 0; this.y = 0; this.x = 0; this.w = 5;
     this.lowest = 0;
+    this.ox = 0; this.oz = 0; this.D = 0;
+    this.heading = 0;
+    this.face(0);
   }
 
+  // Heading a (radians, 0 is +z): forward v = (sin a, cos a), sideways u = (cos a, -sin a).
+  Builder.prototype.face = function (a) {
+    this.heading = a;
+    this.vx = Math.sin(a); this.vz = Math.cos(a);
+    this.ux = Math.cos(a); this.uz = -Math.sin(a);
+  };
+
+  Builder.prototype.world = function (x, z) {
+    return [this.ox + x * this.ux + z * this.vx, this.oz + x * this.uz + z * this.vz];
+  };
+
+  // Adds an item given in the stretch's frame (x sideways, z forward).
   Builder.prototype.add = function (item) {
-    item.id = this.items.length;
+    var w = this.world(item.x, item.z);
+    item.s = this.D + item.z;
+    item.x = w[0]; item.z = w[1];
+    item.ux = this.ux; item.uz = this.uz; item.vx = this.vx; item.vz = this.vz;
+    item.yaw = -this.heading;
+    item.reach = Math.sqrt((item.hx || 0) * (item.hx || 0) + (item.hz || 0) * (item.hz || 0)) + (item.move && item.move.ax !== 1 ? item.move.amp : 0);
+    item.id = this.nextItem++;
     this.items.push(item);
     return item;
   };
 
-  // A floor from the cursor forward: top at y, centred on x.
-  Builder.prototype.floor = function (len, extra) {
-    var thick = (extra && extra.thick) || 1.2;
-    var f = this.add(Object.assign({ kind: "floor", x: this.x, y: this.y - thick / 2, z: this.z + len / 2,
-      hx: this.w / 2, hy: thick / 2, hz: len / 2, solid: true }, extra || {}));
-    this.z += len;
-    this.lowest = Math.min(this.lowest, this.y);
-    return f;
+  Builder.prototype.point = function (x, z) {
+    var w = this.world(x, z);
+    this.path.push({ x: w[0], y: this.y, z: w[1], s: this.D + z });
   };
 
-  Builder.prototype.gem = function (x, y, z) { this.gems.push({ x: x, y: y, z: z, id: this.gems.length }); };
+  // A floor from the cursor forward: top at y, centred on x. Returns its
+  // place in the stretch's frame.
+  Builder.prototype.floor = function (len, extra) {
+    var thick = (extra && extra.thick) || 1.2;
+    var local = { x: this.x, z: this.z + len / 2, hx: this.w / 2, hz: len / 2 };
+    this.point(this.x, this.z);
+    local.item = this.add(Object.assign({ kind: "floor", x: this.x, y: this.y - thick / 2, z: this.z + len / 2,
+      hx: this.w / 2, hy: thick / 2, hz: len / 2, solid: true }, extra || {}));
+    this.z += len;
+    this.point(this.x, this.z);
+    this.lowest = Math.min(this.lowest, this.y);
+    return local;
+  };
+
+  Builder.prototype.gem = function (x, y, z) {
+    var w = this.world(x, z);
+    this.gems.push({ x: w[0], y: y, z: w[1], s: this.D + z, id: this.nextGem++ });
+  };
 
   // A line of gems along the floor ahead (before building it).
   Builder.prototype.gemLine = function (from, count, gapZ) {
@@ -131,6 +175,32 @@
 
   Builder.prototype.shift = function (amount) {
     this.x = clamp(this.x + (this.random() * 2 - 1) * amount, -4, 4);
+  };
+
+  // A corner: a wide square floor centred where the last floor ends, then a
+  // new stretch from there, turned by delta. The course never heads more
+  // than 80 degrees off its first direction, so it never comes back on itself.
+  Builder.prototype.turn = function (delta) {
+    if (Math.abs(this.heading + delta) > MAX_HEADING) delta = -delta;
+    var joint = this.world(this.x, this.z);
+    this.D += this.z;
+    this.ox = joint[0]; this.oz = joint[1];
+    this.face(this.heading + delta);
+    this.x = 0; this.z = 0;
+    var half = this.w / 2 + 0.6;
+    this.add({ kind: "floor", corner: true, x: 0, y: this.y - 0.6, z: 0, hx: half, hy: 0.6, hz: half, solid: true });
+    this.point(0, 0);
+    this.z = half;
+    this.floor(3.5);   // room to settle into the new direction
+  };
+
+  // Between obstacles: a rest, and now and then a corner.
+  Builder.prototype.between = function (turnChance) {
+    this.rest(REST + this.random() * 2);
+    if (this.random() < turnChance) {
+      var sign = this.random() < 0.5 ? -1 : 1;
+      this.turn(sign * lerp(0.35, 1.0, this.random()));
+    }
   };
 
   var FEATURES = {
@@ -261,9 +331,7 @@
   function finish(b) {
     b.rest(3);
     var f = b.floor(10);
-    var gz = f.z - f.hz + 3;
-    b.add({ kind: "gate", x: f.x, y: b.y + 1.6, z: gz, hx: f.hx, hy: 1.6, hz: 0.15, finish: true });
-    return gz;
+    return b.add({ kind: "gate", x: f.x, y: b.y + 1.6, z: f.z - f.hz + 3, hx: f.hx, hy: 1.6, hz: 0.15, finish: true });
   }
 
   // The kinds a level uses, in turn, with the newest one most often.
@@ -272,37 +340,41 @@
     var b = new Builder(spec.seed);
     start(b);
     var i = 0;
-    while (b.z < spec.length) {
+    while (b.D + b.z < spec.length) {
       var kind = spec.fresh && i % 3 !== 2 ? spec.fresh : spec.kinds[Math.floor(b.random() * spec.kinds.length)];
       FEATURES[kind](b, spec.d);
-      b.rest(REST + b.random() * 2);
+      b.between(i ? 0.45 : 0.25);
       i++;
     }
-    var goal = finish(b);
-    return { items: b.items, gems: b.gems, finishZ: goal, length: goal, lowest: b.lowest, spec: spec, endless: false };
+    var gate = finish(b);
+    return { items: b.items, gems: b.gems, path: b.path, gate: gate, length: gate.s, lowest: b.lowest, spec: spec, endless: false };
   }
 
   // Endless: obstacles come in one by one over the first 400 m, and the
-  // course gets harder up to 1500 m.
+  // course gets harder up to 1500 m, and faster: the top speed grows from
+  // 7.5 to 12 m/s by then.
   function endless(seed) {
     var b = new Builder(seed || 1);
     start(b);
-    var course = { items: b.items, gems: b.gems, finishZ: Infinity, length: Infinity, endless: true, lowest: 0 };
-    course.extend = function (z) {
-      while (b.z < z) {
-        var open = INTRO.slice(0, Math.min(INTRO.length, 2 + Math.floor(b.z / 45)));
+    var course = { items: b.items, gems: b.gems, path: b.path, gate: null, length: Infinity, endless: true, lowest: 0 };
+    course.speed = function (s) { return SPEED * (1 + 0.6 * clamp(s / 1500, 0, 1)); };
+    course.extend = function (s) {
+      while (b.D + b.z < s) {
+        var at = b.D + b.z;
+        var open = INTRO.slice(0, Math.min(INTRO.length, 2 + Math.floor(at / 45)));
         var kind = open[Math.floor(b.random() * open.length)];
-        FEATURES[kind](b, clamp(b.z / 1500, 0, 1));
-        b.rest(REST + b.random() * 2);
+        FEATURES[kind](b, clamp(at / 1500, 0, 1));
+        b.between(at < 30 ? 0.2 : 0.5);
       }
       course.lowest = b.lowest;
     };
     // Drop what is long behind the ball (Endless runs can be long).
-    course.prune = function (z) {
-      var keep = function (o) { return o.z + (o.hz || 0) + (o.move ? o.move.amp : 0) > z; };
-      var items = b.items.filter(keep), gems = b.gems.filter(keep);
+    course.prune = function (s) {
+      var keep = function (o) { return o.s + (o.hz || 0) + (o.reach || 0) > s; };
+      var items = b.items.filter(keep), gems = b.gems.filter(keep), path = b.path.filter(function (p) { return p.s > s - 20; });
       if (items.length !== b.items.length) { b.items.length = 0; Array.prototype.push.apply(b.items, items); }
       if (gems.length !== b.gems.length) { b.gems.length = 0; Array.prototype.push.apply(b.gems, gems); }
+      if (path.length !== b.path.length) { b.path.length = 0; Array.prototype.push.apply(b.path, path); }
     };
     course.extend(140);
     return course;
@@ -313,7 +385,12 @@
   // An item's centre at time t (lifts and sliders move; crumbled tiles fall).
   function at(item, t, run) {
     var p = [item.x, item.y, item.z];
-    if (item.move) p[item.move.ax] += item.move.amp * Math.sin((t / item.move.period) * Math.PI * 2 + item.move.phase);
+    if (item.move) {
+      var off = item.move.amp * Math.sin((t / item.move.period) * Math.PI * 2 + item.move.phase), ax = item.move.ax;
+      if (ax === 1) p[1] += off;
+      else if (ax === 0) { p[0] += off * item.ux; p[2] += off * item.uz; }
+      else { p[0] += off * item.vx; p[2] += off * item.vz; }
+    }
     var touched = run && item.crumble ? run.touched[item.id] : undefined;
     if (touched !== undefined && t > touched + CRUMBLE) {
       var f = t - touched - CRUMBLE;
@@ -351,6 +428,7 @@
       taken: [],          // gems picked up this step (the page counts them)
       got: {},            // gem id -> true, picked up in this run
       touched: {},        // crumbling tile id -> when it was first touched
+      s: 2,               // how far along the course the ball is (metres)
       furthest: 2
     };
   }
@@ -368,11 +446,17 @@
     return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
   }
 
+  // The ball's centre in an item's frame (item centre c): [sideways, up, forward].
+  function local(o, c, ball) {
+    var dx = ball.x - c[0], dz = ball.z - c[2];
+    return [dx * o.ux + dz * o.uz, ball.y - c[1], dx * o.vx + dz * o.vz];
+  }
+
   // Pushes the ball out of a box; returns the push direction's height (1: standing on it), or null.
   function push(ball, c, o) {
-    var lx = c[0] - o.hx, hx = c[0] + o.hx, ly = c[1] - o.hy, hy = c[1] + o.hy, lz = c[2] - o.hz, hz = c[2] + o.hz;
-    var px = clamp(ball.x, lx, hx), py = clamp(ball.y, ly, hy), pz = clamp(ball.z, lz, hz);
-    var dx = ball.x - px, dy = ball.y - py, dz = ball.z - pz, d2 = dx * dx + dy * dy + dz * dz;
+    var l = local(o, c, ball);
+    var px = clamp(l[0], -o.hx, o.hx), py = clamp(l[1], -o.hy, o.hy), pz = clamp(l[2], -o.hz, o.hz);
+    var dx = l[0] - px, dy = l[1] - py, dz = l[2] - pz, d2 = dx * dx + dy * dy + dz * dz;
     if (d2 >= R * R) return null;
     var nx, ny, nz, depth;
     if (d2 > 1e-10) {
@@ -380,26 +464,27 @@
       nx = dx / d; ny = dy / d; nz = dz / d; depth = R - d;
     } else {
       // The centre is inside: out through the nearest face.
-      var faces = [[hy - ball.y, 0, 1, 0], [ball.y - ly, 0, -1, 0], [hx - ball.x, 1, 0, 0], [ball.x - lx, -1, 0, 0], [hz - ball.z, 0, 0, 1], [ball.z - lz, 0, 0, -1]];
+      var faces = [[o.hy - l[1], 0, 1, 0], [l[1] + o.hy, 0, -1, 0], [o.hx - l[0], 1, 0, 0], [l[0] + o.hx, -1, 0, 0], [o.hz - l[2], 0, 0, 1], [l[2] + o.hz, 0, 0, -1]];
       faces.sort(function (a, b) { return a[0] - b[0]; });
       nx = faces[0][1]; ny = faces[0][2]; nz = faces[0][3]; depth = faces[0][0] + R;
     }
-    ball.x += nx * depth; ball.y += ny * depth; ball.z += nz * depth;
-    var vn = ball.vx * nx + ball.vy * ny + ball.vz * nz;
-    if (vn < 0) { ball.vx -= vn * nx; ball.vy -= vn * ny; ball.vz -= vn * nz; }
+    var wx = nx * o.ux + nz * o.vx, wz = nx * o.uz + nz * o.vz;
+    ball.x += wx * depth; ball.y += ny * depth; ball.z += wz * depth;
+    var vn = ball.vx * wx + ball.vy * ny + ball.vz * wz;
+    if (vn < 0) { ball.vx -= vn * wx; ball.vy -= vn * ny; ball.vz -= vn * wz; }
     return ny;
   }
 
   // How far the ball's centre is from a box (0 inside).
   function boxDistance(ball, c, o, shrink) {
-    var hx = o.hx * shrink, hy = o.hy * shrink, hz = o.hz * shrink;
-    var dx = Math.max(0, Math.abs(ball.x - c[0]) - hx), dy = Math.max(0, Math.abs(ball.y - c[1]) - hy), dz = Math.max(0, Math.abs(ball.z - c[2]) - hz);
+    var l = local(o, c, ball);
+    var dx = Math.max(0, Math.abs(l[0]) - o.hx * shrink), dy = Math.max(0, Math.abs(l[1]) - o.hy * shrink), dz = Math.max(0, Math.abs(l[2]) - o.hz * shrink);
     return Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
 
   function near(o, ball, extra) {
-    var reach = (o.hz || 0) + (o.move && o.move.ax === 2 ? o.move.amp : 0) + extra;
-    return Math.abs(o.z - ball.z) < reach;
+    var dx = o.x - ball.x, dz = o.z - ball.z, r = o.reach + extra;
+    return dx * dx + dz * dz < r * r;
   }
 
   function hits(o, ball, t) {
@@ -431,9 +516,10 @@
     // Running: straight to the keys' direction, quick to turn.
     var ix = clamp(input.x || 0, -1, 1), iz = clamp(input.z || 0, -1, 1), len = Math.sqrt(ix * ix + iz * iz);
     if (len > 1) { ix /= len; iz /= len; }
-    var accel = b.grounded ? (len > 0.05 ? ACCEL : BRAKE) : AIR_ACCEL;
-    b.vx = approach(b.vx, ix * SPEED, accel * dt);
-    b.vz = approach(b.vz, iz * SPEED, accel * dt);
+    var top = speed(run), k = top / SPEED;
+    var accel = (b.grounded ? (len > 0.05 ? ACCEL : BRAKE) : AIR_ACCEL) * k;
+    b.vx = approach(b.vx, ix * top, accel * dt);
+    b.vz = approach(b.vz, iz * top, accel * dt);
 
     if (b.buffer > 0 && (b.grounded || b.coyote > 0)) {
       b.vy = JUMP;
@@ -485,7 +571,7 @@
     for (var j = 0; j < items.length; j++) {
       var h = items[j];
       if (!h.deadly || !near(h, b, R + 1)) continue;
-      if (h.kind === "sweeper" ? Math.abs(b.z - h.z) < h.arm + R && hits(h, b, t1) : hits(h, b, t1)) {
+      if (hits(h, b, t1)) {
         run.dead = h.kind;
         return run;
       }
@@ -495,16 +581,30 @@
     var gems = course.gems;
     for (var g = 0; g < gems.length; g++) {
       var gem = gems[g];
-      if (run.got[gem.id] || Math.abs(gem.z - b.z) > 1.2) continue;
+      if (run.got[gem.id] || Math.abs(gem.z - b.z) > 1.2 || Math.abs(gem.x - b.x) > 1.2) continue;
       var dx = gem.x - b.x, dy = gem.y - b.y, dz = gem.z - b.z;
       if (dx * dx + dy * dy + dz * dz < 0.95 * 0.95) { run.got[gem.id] = true; run.taken.push(gem); }
     }
 
-    run.furthest = Math.max(run.furthest, b.z);
+    // How far along the course: from the floor under the ball.
+    if (ground) {
+      var gl = local(ground, at(ground, t1, run), b);
+      run.s = ground.s + clamp(gl[2], -ground.hz, ground.hz);
+      run.furthest = Math.max(run.furthest, run.s);
+    }
     if (b.y < Math.min(b.floorY, course.lowest) - FALL) run.dead = "fell";
-    else if (b.z >= course.finishZ) run.won = true;
+    else if (course.gate && crossed(course.gate, b)) run.won = true;
     return run;
   }
+
+  // Through the finish gate: past its line, between its posts.
+  function crossed(gate, b) {
+    var l = local(gate, [gate.x, gate.y, gate.z], b);
+    return l[2] >= 0 && l[2] < 3 && Math.abs(l[0]) <= gate.hx + 0.3 && Math.abs(l[1]) < gate.hy + 1.5;
+  }
+
+  function speed(run) { return run.course.speed ? run.course.speed(run.furthest) : SPEED; }
+  function heading(o) { return [o.vx, o.vz]; }
 
   var core = {
     R: R, GRAVITY: GRAVITY, JUMP: JUMP, BOUNCE: BOUNCE, SPEED: SPEED, CRUMBLE: CRUMBLE,
@@ -516,6 +616,9 @@
     newRun: newRun,
     copyRun: copyRun,
     step: step,
+    speed: speed,
+    heading: heading,
+    local: local,
     at: at,
     shake: shake,
     laserOn: laserOn,

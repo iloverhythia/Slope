@@ -250,3 +250,87 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Higher balls, flashier spaces (merge.js sets the tier and the ball's colour). */
+.slope-merge-cell.is-tier-1,
+.slope-merge-cell.is-tier-2 {
+  box-shadow: inset 0 0 0 2px var(--slope-dim), inset 0 0 14px -2px var(--ball-glow);
+}
+
+.slope-merge-cell.is-tier-2 img {
+  filter: drop-shadow(0 0 4px var(--ball-glow));
+  animation: slope-ball-pulse 1.8s ease-in-out infinite;
+}
+
+.slope-merge-cell.is-tier-3,
+.slope-merge-cell.is-tier-4,
+.slope-merge-cell.is-tier-5 {
+  box-shadow: inset 0 0 0 2px var(--ball-glow), inset 0 0 18px -2px var(--ball-glow);
+  overflow: hidden;
+}
+
+.slope-merge-cell.is-tier-3 img,
+.slope-merge-cell.is-tier-4 img,
+.slope-merge-cell.is-tier-5 img {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 0 6px var(--ball-glow));
+  animation: slope-ball-pulse 1.4s ease-in-out infinite;
+}
+
+/* A ring spinning behind the ball. */
+.slope-merge-cell.is-tier-3::before,
+.slope-merge-cell.is-tier-4::before,
+.slope-merge-cell.is-tier-5::before {
+  content: "";
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 60%, var(--ball-glow) 75%, transparent 90%);
+  animation: slope-ball-spin 2.4s linear infinite;
+}
+
+.slope-merge-cell.is-tier-4::before,
+.slope-merge-cell.is-tier-5::before {
+  background: conic-gradient(#ff3b3b, #ffd43b, #3bff6e, #3bd5ff, #9b5bff, #ff3bd0, #ff3b3b);
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%, #000 70%, transparent 72%);
+  mask: radial-gradient(circle, transparent 58%, #000 60%, #000 70%, transparent 72%);
+  animation-duration: 3s;
+}
+
+/* Rays bursting out behind the ball. */
+.slope-merge-cell.is-tier-5::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background: repeating-conic-gradient(from 0deg, var(--ball-glow) 0 6deg, transparent 6deg 24deg);
+  -webkit-mask: radial-gradient(circle, #000 20%, transparent 62%);
+  mask: radial-gradient(circle, #000 20%, transparent 62%);
+  opacity: 0.55;
+  animation: slope-ball-spin 9s linear infinite reverse;
+}
+
+.slope-merge-cell.is-tier-5 .slope-merge-level {
+  z-index: 2;
+}
+
+@keyframes slope-ball-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@keyframes slope-ball-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slope-merge-cell[class*="is-tier-"] img,
+  .slope-merge-cell[class*="is-tier-"]::before,
+  .slope-merge-cell[class*="is-tier-"]::after {
+    animation: none;
+  }
+}
+
+.slope-merge-cell[class*="is-tier-"].is-selected {
+  box-shadow: inset 0 0 0 3px var(--slope-color), inset 0 0 18px -2px var(--ball-glow);
+}

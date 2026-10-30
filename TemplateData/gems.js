@@ -84,10 +84,11 @@
   }
 
   // What a pickup adds: the upgrade tree's multiplier, the rarity, the merge
-  // game's best ball and a Double gems effect.
+  // game's best ball, Gem Prestige and a Double gems effect.
   function worth(r) {
     return (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (RARITIES[r] || RARITIES[0]).worth *
       (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *
+      (window.SlopeProfile && window.SlopeProfile.boosts ? window.SlopeProfile.boosts().gems : 1) *   // Gem Prestige
       (effect("double") ? 2 : 1);
   }
 
