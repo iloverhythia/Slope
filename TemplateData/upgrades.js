@@ -23,6 +23,10 @@
  *
  *   SlopeUpgrades.multiplier() / magnet() / spawn() / luck() / xp() / discount()
  *   SlopeUpgrades.hasRarity(id)  true once that gem rarity is unlocked
+ *   SlopeUpgrades.maxPlan()      what Buy max would buy now: { ids, cost }
+ *
+ * Buy max keeps buying the cheapest upgrade you can afford (which opens the
+ * next ones) until the gems run out.
  *
  * The tab also holds Gem Prestige (profile.js): start the tree and the merge
  * game over for prestige points, which boost gems and XP for good.
@@ -132,7 +136,8 @@
     if (n.kind === "mult") return "+" + (n.amount / 100).toFixed(2) + "x";
     return (n.kind === "discount" ? "-" : "+") + n.amount + "%";
   }
-  function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
+  function fmt(n) { return Math.round(n).toLocaleString("en-US"); }   // full, for screen readers
+  function abbr(n) { return profile.short ? profile.short(n) : fmt(n); }   // short, for the screen: 1.2K, 3.4M...
 
   var owned = profile.get().upgrades;
   var fx = effectsOf(owned);
@@ -147,6 +152,7 @@
     discount: function () { return fx.discount; },   // off shop prices
     hasRarity: function (id) { return !!fx.rarities[id]; },
     price: function (base) { return base > 0 ? Math.max(1, Math.round(base * (1 - fx.discount))) : 0; },
+    maxPlan: function () { return maxPlan(profile.get().gems); },
     node: node,
     kinds: KINDS
   };
@@ -211,6 +217,9 @@
         '<button type="button" class="slope-btn slope-prestige-btn"></button>' +
         '<p class="slope-prestige-status" role="status"></p>' +
       "</section>" +
+      '<div class="slope-tree-actions">' +
+        '<button type="button" class="slope-btn slope-buy-max"></button>' +
+      "</div>" +
       '<div class="slope-tree">' +
         '<svg class="slope-tree-lines" aria-hidden="true" preserveAspectRatio="none"></svg>' +
         '<ol class="slope-tree-tiers"></ol>' +
@@ -226,6 +235,7 @@
       effects: ORDER.map(function (k) { return { kind: k, li: panel.querySelector('[data-kind="' + k + '"]') }; }),
       rarities: panel.querySelector(".slope-rarities"),
       prestigeNow: panel.querySelector(".slope-prestige-now"),
+      buyMax: panel.querySelector(".slope-buy-max"),
       prestigeBtn: panel.querySelector(".slope-prestige-btn"),
       prestigeStatus: panel.querySelector(".slope-prestige-status"),
       mult: document.querySelector(".slope-shop-mult")
@@ -237,6 +247,7 @@
       if (next) requestAnimationFrame(function () { scrollToNode(next); });
     });
     profile.onChange(render);
+    els.buyMax.addEventListener("click", buyMax);
     // Two clicks: the first asks, the second (within 5 s) does it.
     var armed = 0;
     els.prestigeBtn.addEventListener("click", function () {
@@ -296,6 +307,51 @@
     });
   }
 
+  // Buy max: the cheapest upgrade you can afford, again and again (each one
+  // bought may open the next). Ties go to the lower tier.
+  function maxPlan(gems) {
+    var have = {}, ids = [], cost = 0;
+    owned.forEach(function (id) { have[id] = true; });
+    for (var guard = 0; guard < 5000; guard++) {
+      var best = null, top = reach(have);
+      for (var t = 1; t <= top; t++) {
+        ["L", "R", "C"].forEach(function (part) {
+          var n = node(t + part);
+          if (stateOf(n, have, gems) === "ready" && (!best || n.price < best.price)) best = n;
+        });
+      }
+      if (!best) break;
+      have[best.id] = true;
+      ids.push({ id: best.id, price: best.price });
+      gems -= best.price;
+      cost += best.price;
+    }
+    return { ids: ids, cost: cost };
+  }
+
+  function renderBuyMax(p) {
+    var plan = maxPlan(p.gems), n = plan.ids.length;
+    els.buyMax.disabled = !n;
+    els.buyMax.innerHTML = n
+      ? "Buy max: " + n + (n === 1 ? " upgrade" : " upgrades") + " for " + gemIcon() + "<span>" + abbr(plan.cost) + "</span>"
+      : "Buy max: nothing you can afford yet";
+    els.buyMax.setAttribute("aria-label", n ? "Buy max: " + n + " upgrades for " + fmt(plan.cost) + " gems" : "Buy max: nothing you can afford yet");
+  }
+
+  function buyMax() {
+    var p = profile.get(), plan = maxPlan(p.gems);
+    if (!plan.ids.length) return;
+    var before = fx.multiplier;
+    if (profile.buyUpgrades(plan.ids)) {
+      var unlocked = plan.ids.map(function (u) { return node(u.id).unlock; }).filter(Boolean);
+      els.status.textContent = "Bought " + plan.ids.length + (plan.ids.length === 1 ? " upgrade" : " upgrades") + " for " + abbr(plan.cost) + " gems. " +
+        "Gem multiplier " + fmtMult(before) + " to " + fmtMult(fx.multiplier) + "." +
+        (unlocked.length ? " New gems: " + unlocked.map(function (id) { return RARITIES[rarityOf(id)].name; }).join(", ") + "!" : "");
+      var next = firstBuyable();
+      if (next) requestAnimationFrame(function () { scrollToNode(next); });
+    }
+  }
+
   function stateOf(n, have, gems) {
     if (have[n.id]) return "owned";
     if (!needs(n).every(function (id) { return have[id]; })) return "locked";
@@ -335,6 +391,7 @@
     var rows = rarityRows();
     if (els.rarities.__html !== rows) els.rarities.innerHTML = els.rarities.__html = rows;
     renderPrestige(p);
+    renderBuyMax(p);
     var want = reach(have) + EXTRA_TIERS;
     while (tiers < want) addTier(++tiers);
     for (var id in nodes) {
@@ -348,7 +405,7 @@
         b.setAttribute("aria-label", what + ", bought");
       } else {
         var short = n.price - p.gems;
-        o.price.innerHTML = gemIcon() + "<span>" + fmt(n.price) + "</span>";
+        o.price.innerHTML = gemIcon() + "<span>" + abbr(n.price) + "</span>";
         b.setAttribute("aria-label", what + ", " + fmt(n.price) + " gems" +
           (state === "locked" ? ", locked" : state === "short" ? ", you need " + fmt(short) + " more" : ""));
       }
@@ -401,7 +458,7 @@
     var state = stateOf(n, owned.reduce(function (h, id) { h[id] = true; return h; }, {}), p.gems);
     if (state === "owned" || state === "locked") return;
     if (state === "short") {
-      els.status.textContent = "You need " + fmt(n.price - p.gems) + " more gems for this upgrade.";
+      els.status.textContent = "You need " + abbr(n.price - p.gems) + " more gems for this upgrade.";
       return;
     }
     var focused = document.activeElement === nodes[n.id].button;

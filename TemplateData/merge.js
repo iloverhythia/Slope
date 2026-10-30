@@ -45,7 +45,7 @@
     { key: "star", name: "Star balls", max: 10, base: 70, growth: 2,
       effect: function (l) { return l ? (l * 2) + "% of new balls are stars: drop one on a ball (not your best) to level it up" : "None"; } },
     { key: "gemball", name: "Gem balls", max: 10, base: 40, growth: 1.85,
-      effect: function (l) { return l ? (l * 3) + "% of new balls are gem balls: click one for " + gemBallValue(l) + " gems" : "None"; } },
+      effect: function (l) { return l ? (l * 3) + "% of new balls are gem balls: click one for " + abbr(gemBallValue(l)) + " gems" : "None"; } },
     { key: "pay", name: "Merge pay", max: 20, base: 90, growth: 1.9,
       effect: function (l) { return l ? "Every merge pays " + fmtNum(l * 0.5) + " gems per level of the new ball" : "Off"; } },
     { key: "automerge", name: "Auto merge", max: 5, base: 150, growth: 2.4,
@@ -57,7 +57,8 @@
   ];
 
   function fmtNum(n) { return Math.round(n * 100) / 100 + ""; }
-  function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
+  function fmt(n) { return Math.round(n).toLocaleString("en-US"); }   // full, for screen readers
+  function abbr(n) { return profile.short ? profile.short(n) : fmt(n); }   // short, for the screen: 1.2K, 3.4M...
   function priceOf(u, level) { return Math.round(u.base * Math.pow(u.growth, level)); }
 
   var state = profile.get().merge;
@@ -290,7 +291,7 @@
       c.img.src = specialImage(level);
       c.img.hidden = false;
       var value = gemBallValue(up("gemball"));
-      c.label.textContent = level === STAR ? "+1" : "+" + value;
+      c.label.textContent = level === STAR ? "+1" : "+" + abbr(value);
       c.el.setAttribute("aria-label", level === STAR ? "Star ball: drop it on any ball but your best to level that ball up" : "Gem ball: click it for " + value + " gems");
     } else if (level) {
       var url = image(level), s = skin(level);
@@ -351,12 +352,12 @@
       state.best = level;
       commit(true);
       profile.addGems(gems + pay);
-      say(how + "New ball: " + skin(level).name + " (level " + level + ")! Its secret skin is yours, and +" + (gems + pay) + " gems.");
+      say(how + "New ball: " + skin(level).name + " (level " + level + ")! Its secret skin is yours, and +" + abbr(gems + pay) + " gems.");
       renderSkins();
     } else {
       commit(false);
       if (pay) profile.addGems(pay);
-      say(how + "Merged into level " + level + "." + (pay ? " +" + pay + " gems." : ""));
+      say(how + "Merged into level " + level + "." + (pay ? " +" + abbr(pay) + " gems." : ""));
     }
     pop(to);
   }
@@ -367,7 +368,7 @@
     state.board[i] = 0;
     commit(false);
     profile.addGems(value);
-    say("Gem ball: +" + value + " gems!");
+    say("Gem ball: +" + abbr(value) + " gems!");
     render();
   }
 
@@ -478,7 +479,7 @@
         if (second >= 0) pop(second);
         if (first) { renderSkins(); say("Your first ball! Merge two of the same level to make the next one."); }
         else if (kind === STAR) say("A star ball! Drop it on any ball but your best to level that ball up.");
-        else if (kind === GEM) say("A gem ball! Click it for " + gemBallValue(up("gemball")) + " gems.");
+        else if (kind === GEM) say("A gem ball! Click it for " + abbr(gemBallValue(up("gemball"))) + " gems.");
         else if (second >= 0) say("Double spawn: two balls!");
       }
     } else {
@@ -535,7 +536,7 @@
       row.name.textContent = u.name + (level ? " " + level : "");
       row.effect.textContent = "Now: " + u.effect(level) + (maxed ? " (max)" : ". Next: " + u.effect(level + 1));
       row.buy.disabled = maxed || gems < price;
-      row.buy.innerHTML = maxed ? "Max" : gemIcon() + "<span>" + fmt(price) + "</span>";
+      row.buy.innerHTML = maxed ? "Max" : gemIcon() + "<span>" + abbr(price) + "</span>";
       row.buy.setAttribute("aria-label", maxed ? u.name + ", at its best" : "Buy " + u.name + " for " + fmt(price) + " gems" + (gems < price ? ", you need " + fmt(price - gems) + " more" : ""));
     });
   }
@@ -544,7 +545,7 @@
     var level = up(u.key);
     if (level >= u.max) return;
     var price = priceOf(u, level);
-    if (!profile.spendGems(price)) { say("You need " + fmt(price - profile.get().gems) + " more gems for " + u.name + "."); return; }
+    if (!profile.spendGems(price)) { say("You need " + abbr(price - profile.get().gems) + " more gems for " + u.name + "."); return; }
     state = profile.get().merge;
     state.up[u.key] = level + 1;
     fitBoard();

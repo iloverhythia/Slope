@@ -257,7 +257,7 @@
     if (!pop) return;
     var k = RARITIES[r], c = colours(r, performance.now() / 1000).edge;
     pop.querySelector(".slope-gem-pop-name").textContent = k.name + " gem!";
-    pop.querySelector(".slope-gem-pop-worth").textContent = "+" + added + (added === 1 ? " gem" : " gems");
+    pop.querySelector(".slope-gem-pop-worth").textContent = "+" + short(added) + (added === 1 ? " gem" : " gems");
     pop.style.setProperty("--rarity", "rgb(" + c.map(function (v) { return Math.round(v * 255); }).join(",") + ")");
     pop.hidden = false;
     pop.classList.remove("is-new");
@@ -389,6 +389,8 @@
   // A dot-matrix gem, in the same round dots as the game's lettering.
   var GEM_DOTS = ["..###..", ".#####.", "#######", ".#####.", "..###..", "...#..."];
 
+  function short(n) { return window.SlopeProfile && window.SlopeProfile.short ? window.SlopeProfile.short(n) : String(Math.floor(n)); }
+
   function gemIcon(width, height) {
     var dots = "";
     GEM_DOTS.forEach(function (row, y) {
@@ -410,8 +412,8 @@
     ui.hud.appendChild(counter);
     var count = counter.querySelector(".slope-gems-count");
     function show(n) {
-      count.textContent = String(n);
-      counter.setAttribute("aria-label", "Skin shop, " + n + (n === 1 ? " gem" : " gems"));
+      count.textContent = short(n);
+      counter.setAttribute("aria-label", "Skin shop, " + n.toLocaleString("en-US") + (n === 1 ? " gem" : " gems"));
     }
     show(0);
     counter.addEventListener("click", function () {

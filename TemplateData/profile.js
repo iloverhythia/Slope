@@ -25,10 +25,12 @@
  *   SlopeProfile.prestige()        Gem Prestige: resets the merge game and the upgrade tree
  *                                  for prestige points; returns the points gained (0: not yet)
  *   SlopeProfile.boosts()          { gems, xp, mergeStart } from prestige points
+ *   SlopeProfile.short(n)          a gem amount for the screen: 999, 1.23K, 45.6M, 789B, 1.2T, ... (Qa, Qi, Sx, Sp, Oc, No, Dc)
  *   SlopeProfile.xpFor(score)      XP a run with that score earns
  *   SlopeProfile.addGems(n)            n can be fractional (gem multiplier): the
  *                                      fraction is kept; returns whole gems added
  *   SlopeProfile.buyUpgrade(id, price) spends gems on a gem upgrade; true if bought
+ *   SlopeProfile.buyUpgrades([{ id, price }])  several at once (all or none); true if bought
  *   SlopeProfile.buySkin(id, price)   spends gems; true if bought (and equips it)
  *   SlopeProfile.equipSkin(id)
  *   SlopeProfile.buyBackground(id, price)  spends gems; true if bought (and shows it)
@@ -385,6 +387,22 @@
     changed();
   }
 
+  // Big numbers, short: three figures and a suffix.
+  var SUFFIXES = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+  function short(n) {
+    n = Math.floor(+n || 0);
+    var sign = n < 0 ? "-" : "";
+    n = Math.abs(n);
+    if (n < 1000) return sign + n;
+    var i = Math.floor(Math.log10(n) / 3);
+    if (i >= SUFFIXES.length) return sign + n.toExponential(2).replace("+", "").replace(/\.?0+e/, "e");
+    var v = n / Math.pow(1000, i);
+    // Round down so 999,999 never shows as 1000K.
+    var digits = v >= 100 ? 0 : v >= 10 ? 1 : 2, f = Math.pow(10, digits);
+    v = Math.floor(v * f + 1e-9) / f;
+    return sign + v.toFixed(digits).replace(/\.?0+$/, "") + SUFFIXES[i];
+  }
+
   function addGems(n) {
     if (!(n > 0)) return 0;
     var total = data.gemBank + n;
@@ -402,6 +420,24 @@
     data.gems -= price;
     data.spent += price;
     data.upgrades.push(id);
+    save();
+    changed();
+    return true;
+  }
+
+  // Several upgrades in one go (the tree's Buy max): one save, one change.
+  function buyUpgrades(list) {
+    var total = 0, seen = {};
+    for (var i = 0; i < list.length; i++) {
+      var id = list[i].id, price = Math.floor(list[i].price);
+      if (!isUpgradeId(id) || !(price >= 0) || seen[id] || data.upgrades.indexOf(id) !== -1) return false;
+      seen[id] = true;
+      total += price;
+    }
+    if (!list.length || data.gems < total) return false;
+    data.gems -= total;
+    data.spent += total;
+    list.forEach(function (u) { data.upgrades.push(u.id); });
     save();
     changed();
     return true;
@@ -692,6 +728,7 @@
     addGems: addGems,
     buySkin: buySkin,
     buyUpgrade: buyUpgrade,
+    buyUpgrades: buyUpgrades,
     buyBackground: buyBackground,
     buySlope: buySlope,
     saveMerge: saveMerge,
@@ -701,6 +738,7 @@
     prestige: prestige,
     boosts: function () { return boostsFor(data.prestige); },
     boostsFor: boostsFor,
+    short: short,
     completePlatLevel: completePlatLevel,
     spendGems: spendGems,
     equipSlope: equipSlope,

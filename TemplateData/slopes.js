@@ -435,6 +435,8 @@
 
   var els = null, cards = [];
 
+  function abbr(n) { return profile.short ? profile.short(n) : String(n); }   // 1.2K, 3.4M...
+
   function gemIcon() {
     return window.SlopeGems && window.SlopeGems.iconSvg ? window.SlopeGems.iconSvg(14, 12) : "";
   }
@@ -542,7 +544,7 @@
         card.action.setAttribute("aria-label", "Use the " + what);
       } else {
         var price = priceOf(item), short = price - p.gems;
-        card.price.innerHTML = gemIcon() + "<span>" + price + (short > 0 ? " (" + short + " more)" : "") + "</span>";
+        card.price.innerHTML = gemIcon() + "<span>" + abbr(price) + (short > 0 ? " (" + abbr(short) + " more)" : "") + "</span>";
         card.action.textContent = "Buy";
         card.action.disabled = short > 0;
         card.action.setAttribute("aria-label", "Buy the " + what + " for " + price + " gems" + (short > 0 ? ", you need " + short + " more" : ""));
@@ -560,7 +562,7 @@
     } else if (profile.buySlope(item.id, price)) {
       els.status.textContent = "Bought the " + what + ". They're on now.";
     } else {
-      els.status.textContent = "You need " + (price - p.gems) + " more gems for the " + what + ".";
+      els.status.textContent = "You need " + abbr(price - p.gems) + " more gems for the " + what + ".";
     }
     card.action.focus();
   }

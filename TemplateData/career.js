@@ -15,6 +15,8 @@
   var toastTimer = 0;
   var openedFrom = null;
 
+  function abbr(n) { return profile.short ? profile.short(n) : String(n); }   // gem amounts: 1.2K, 3.4M...
+
   function fmt(n) {
     return Math.round(n).toLocaleString("en-US");
   }
@@ -79,11 +81,11 @@
   }
   function count(list) { return list ? list.length : 0; }
   var MORE_STATS = [
-    ["Gems collected", function (p) { return fmt(p.gemsTotal); }],
+    ["Gems collected", function (p) { return abbr(p.gemsTotal); }],
     ["Golden gems", function (p) { return fmt(p.goldTotal); }],
     ["Rare gems", rareText],
-    ["Gems spent", function (p) { return fmt(p.spent); }],
-    ["Most gems in a run", function (p) { return fmt(p.bestGems); }],
+    ["Gems spent", function (p) { return abbr(p.spent); }],
+    ["Most gems in a run", function (p) { return abbr(p.bestGems); }],
     ["Gem multiplier", function () {
       var m = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *
         (profile.boosts ? profile.boosts().gems : 1);
@@ -249,7 +251,7 @@
 
     STATS.forEach(function (s) {
       var dd = els.screen.querySelector('[data-stat="' + s[0] + '"]');
-      dd.textContent = s[0] === "playSeconds" ? fmtTime(p.playSeconds) : fmt(p[s[0]]);
+      dd.textContent = s[0] === "playSeconds" ? fmtTime(p.playSeconds) : s[0] === "gems" ? abbr(p.gems) : fmt(p[s[0]]);
     });
 
     MODE_STATS.filter(shown).forEach(function (m) {
@@ -310,7 +312,7 @@
   function showRunSummary(score, result, gems) {
     var p = profile.get();
     els.toast.querySelector(".slope-toast-score").textContent =
-      "Score " + fmt(score) + (gems ? "  +" + gems + (gems === 1 ? " gem" : " gems") : "");
+      "Score " + fmt(score) + (gems ? "  +" + abbr(gems) + (gems === 1 ? " gem" : " gems") : "");
     els.toast.querySelector(".slope-toast-xp").textContent = "+" + fmt(result.xp) + " XP";
     fillCells(els.toast.querySelector(".slope-toast-bar"), p.levelXp / p.levelNeed);
     var levelLine = els.toast.querySelector(".slope-toast-level");

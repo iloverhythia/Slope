@@ -1070,7 +1070,7 @@
       line = (best ? (metres() > best ? "New best!" : "Best " + fmt(best) + " m") : "Your first run") +
         "  \u00b7  speed x" + (core.speed(run) / core.SPEED).toFixed(2);
     }
-    if (tally && tally.gems) line += "  \u00b7  +" + fmt(tally.gems) + " gems";
+    if (tally && tally.gems) line += "  \u00b7  +" + profile.short(tally.gems) + " gems";
     if (els.hudTitle.textContent !== title) els.hudTitle.textContent = title;
     if (els.hudLine.textContent !== line) els.hudLine.textContent = line;
     fill(els.hudBar, frac);
@@ -1097,7 +1097,7 @@
     els.resultStats.textContent = (adv ? (won ? "Time " + seconds.toFixed(1) + " s" + (bestTime ? "  \u00b7  Best " + bestTime.toFixed(1) + " s" : "") : Math.round(progress() * 100) + "% of the level")
       : "Best " + fmt(Math.max(best, metres())) + " m") +
       "  \u00b7  " + run.jumps + (run.jumps === 1 ? " jump" : " jumps") +
-      (tally.gems ? "  \u00b7  +" + fmt(tally.gems) + (tally.gems === 1 ? " gem" : " gems") : "") +
+      (tally.gems ? "  \u00b7  +" + profile.short(tally.gems) + (tally.gems === 1 ? " gem" : " gems") : "") +
       (xp && xp.xp ? "  \u00b7  +" + fmt(xp.xp) + " XP" : "");
     els.resultMain.textContent = adv ? (won ? "Next level" : "Retry") : "Again";
     els.resultMain.setAttribute("data-level", String(adv ? (won ? levelN + 1 : levelN) : 0));

@@ -163,7 +163,7 @@
     if (!banner) return;
     banner.classList.remove("is-bad");
     banner.querySelector(".slope-effect-name").textContent = left > 0 ? "Gem Rush" : "Time's up!";
-    banner.querySelector(".slope-effect-text").textContent = "+" + rushGems() + " gems" + (left > 0 ? "  \u00b7  " + Math.ceil(left) + " s left" : "");
+    banner.querySelector(".slope-effect-text").textContent = "+" + profile.short(rushGems()) + " gems" + (left > 0 ? "  \u00b7  " + Math.ceil(left) + " s left" : "");
     banner.querySelector(".slope-effect-bar span").style.transform = "scaleX(" + (left / RUSH_SECONDS).toFixed(3) + ")";
     banner.hidden = false;
   }

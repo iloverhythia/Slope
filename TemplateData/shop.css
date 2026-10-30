@@ -525,3 +525,27 @@
 .slope-prestige-status:empty {
   display: none;
 }
+
+/* Buy max (upgrades.js), above the tree. */
+.slope-tree-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.slope-buy-max {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 0 20px;
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-shop .slope-buy-max:disabled,
+.slope-shop .slope-buy-max:disabled:hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: not-allowed;
+}

@@ -432,6 +432,8 @@
     ctx.drawImage(p.canvas, 0, 0, target.width, target.height);
   }
 
+  function abbr(n) { return profile.short ? profile.short(n) : String(n); }   // 1.2K, 3.4M...
+
   function gemIcon() {
     return window.SlopeGems && window.SlopeGems.iconSvg ? window.SlopeGems.iconSvg(14, 12) : "";
   }
@@ -504,7 +506,7 @@
         card.action.setAttribute("aria-label", "Use the " + bg.name + " background");
       } else {
         var price = priceOf(bg), short = price - p.gems;
-        card.price.innerHTML = gemIcon() + "<span>" + price + (short > 0 ? " (" + short + " more)" : "") + "</span>";
+        card.price.innerHTML = gemIcon() + "<span>" + abbr(price) + (short > 0 ? " (" + abbr(short) + " more)" : "") + "</span>";
         card.action.textContent = "Buy";
         card.action.disabled = short > 0;
         card.action.setAttribute("aria-label", "Buy the " + bg.name + " background for " + price + " gems" +
@@ -523,7 +525,7 @@
     } else if (profile.buyBackground(bg.id, price)) {
       els.status.textContent = "Bought " + bg.name + ". It's your background now.";
     } else {
-      els.status.textContent = "You need " + (price - p.gems) + " more gems for " + bg.name + ".";
+      els.status.textContent = "You need " + abbr(price - p.gems) + " more gems for " + bg.name + ".";
     }
     var card = cards.filter(function (c) { return c.bg === bg; })[0];
     if (card) card.action.focus();

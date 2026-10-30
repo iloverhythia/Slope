@@ -959,6 +959,8 @@
   var lastTintCheck = 0;
   var reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
 
+  function abbr(n) { return profile.short ? profile.short(n) : String(n); }   // 1.2K, 3.4M...
+
   function gemIcon() {
     return window.SlopeGems && window.SlopeGems.iconSvg ? window.SlopeGems.iconSvg(14, 12) : "";
   }
@@ -1083,7 +1085,7 @@
 
   function render(p) {
     if (!els.screen) return;
-    els.gems.textContent = String(p.gems);
+    els.gems.textContent = abbr(p.gems);
     els.gemsLabel.textContent = p.gems === 1 ? "gem" : "gems";
     els.cards.forEach(function (card) {
       var s = card.skin;
@@ -1103,7 +1105,7 @@
         card.action.setAttribute("aria-label", "Equip " + s.name);
       } else {
         var price = priceOf(s), short = price - p.gems;
-        card.price.innerHTML = gemIcon() + "<span>" + price + (short > 0 ? " (" + short + " more)" : "") + "</span>";
+        card.price.innerHTML = gemIcon() + "<span>" + abbr(price) + (short > 0 ? " (" + abbr(short) + " more)" : "") + "</span>";
         card.action.textContent = "Buy";
         card.action.disabled = short > 0;
         card.action.setAttribute("aria-label", "Buy " + s.name + " for " + price + " gems" +
@@ -1121,7 +1123,7 @@
     } else if (profile.buySkin(skin.id, priceOf(skin))) {
       els.status.textContent = "Bought " + skin.name + ". It's on your ball now.";
     } else {
-      els.status.textContent = "You need " + (priceOf(skin) - p.gems) + " more gems for " + skin.name + ".";
+      els.status.textContent = "You need " + abbr(priceOf(skin) - p.gems) + " more gems for " + skin.name + ".";
     }
     var card = els.cards.filter(function (c) { return c.skin === skin; })[0];
     if (card) card.action.focus();
