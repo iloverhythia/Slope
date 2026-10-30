@@ -10,6 +10,12 @@
  * document (data/users/<id>/profile) and follows them across devices.
  * Guest progress made before logging in is added to the account once.
  *
+ * Account writes are gathered up: at most one every couple of seconds, and
+ * none when nothing changed (the merge game's clicks, gems and purchases come
+ * in bursts). This browser also keeps its own copy of the account's progress,
+ * apart from guest progress, so nothing is lost if a write can't be made and
+ * nothing is ever added to the account twice.
+ *
  *   SlopeProfile.get()             current profile with level info
  *   SlopeProfile.recordRun(run)    { score, gems, golds, seconds } -> { xp, levelBefore, levelAfter }
  *   SlopeProfile.recordModeRun(mode, score, { dodged })   a run in a game mode (modes.js)
@@ -32,14 +38,17 @@
 (function () {
   "use strict";
 
-  var LOCAL_KEY = "slope-profile";
+  var LOCAL_KEY = "slope-profile";             // guest progress
+  var ACCOUNT_KEY = "slope-profile-account";   // this browser's copy of the account's progress
+  var FLUSH_DELAY = 2000;                      // ms: account writes at most this often
   var XP_PER_POINT = 10;
   var RECENT_RUNS = 12;
 
   var listeners = [];
   var data = readLocal();
-  var remote = null; // { ref } once signed in
-  var writing = Promise.resolve();
+  var remote = null; // { ref, id } once signed in
+  var accountId = null; // the account this browser plays as (kept if writes stop working)
+  var flushTimer = 0, inFlight = false, lastWritten = "", failures = 0;
 
   var account = {
     available: !!(window.claude && typeof window.claude.use === "function"),
@@ -160,22 +169,77 @@
 
   function save() {
     if (!remote) {
-      writeLocal(data);
+      // Logged in but not writing to the account just now: its copy, never guest progress.
+      if (accountId) writeAccountCopy(); else writeLocal(data);
       return;
     }
-    // One write at a time to the profile document.
-    var body = JSON.parse(JSON.stringify(data));
+    // Kept in this browser at once, written to the account a moment later.
+    writeAccountCopy();
+    scheduleFlush(FLUSH_DELAY);
+  }
+
+  function writeAccountCopy() {
+    if (!accountId) return;
+    try { localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ id: accountId, at: Date.now(), data: data })); } catch (e) {}
+  }
+
+  function readAccountCopy(id) {
+    try {
+      var copy = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || "null");
+      return copy && copy.id === id && copy.data ? { at: +copy.at || 0, data: clean(copy.data) } : null;
+    } catch (e) { return null; }
+  }
+
+  function scheduleFlush(ms) {
+    if (flushTimer || !remote) return;
+    flushTimer = setTimeout(flush, ms);
+  }
+
+  // One write at a time, of the whole profile, only when it changed.
+  function flush() {
+    flushTimer = 0;
+    if (!remote) return;
+    if (inFlight) { scheduleFlush(FLUSH_DELAY); return; }
+    var text = JSON.stringify(data);
+    if (text === lastWritten) return;
+    var body = JSON.parse(text);
     body.updatedAt = Date.now();
-    writing = writing.then(function () {
-      return remote.ref.set(body);
-    }).catch(function (e) {
-      account.error = "Couldn't save to your Claude account, so progress is saved on this device.";
+    var forRemote = remote;
+    inFlight = true;
+    forRemote.ref.set(body).then(function () {
+      inFlight = false;
+      failures = 0;
+      if (remote !== forRemote) return;
+      lastWritten = text;
+      if (account.error) { account.error = ""; changed(); }
+    }, function (e) {
+      inFlight = false;
+      if (remote !== forRemote) return;
+      var code = e && e.code;
+      // A busy moment: try again shortly (longer when told to slow down).
+      if ((code === "unavailable" || code === "resource_exhausted" || code === "quota_exceeded") && failures < 6) {
+        failures++;
+        scheduleFlush(code === "unavailable" ? 1000 + Math.random() * 2000 : 10000 * failures);
+        return;
+      }
+      // The account can't take writes now: keep playing on this browser's
+      // copy, which goes to the account the next time you log in.
+      console.warn("Slope profile: account save failed", code);
       remote = null;
-      writeLocal(data);
+      account.signedIn = false;
+      account.error = "Couldn't save to your Claude account just now. Your progress is kept on this device and goes to your account next time you log in.";
       changed();
-      console.warn("Slope profile: account save failed", e && e.code);
     });
   }
+
+  // Leaving the page: write what is waiting.
+  function flushNow() {
+    if (!flushTimer) return;
+    clearTimeout(flushTimer);
+    flush();
+  }
+  window.addEventListener("pagehide", flushNow);
+  document.addEventListener("visibilitychange", function () { if (document.hidden) flushNow(); });
 
   // XP for a score; the upgrade tree can add to it (upgrades.js).
   function xpFor(score) {
@@ -210,7 +274,7 @@
     var whole = Math.floor(total + 1e-9);
     data.gemBank = Math.max(0, total - whole);
     data.gems += whole;
-    if (!remote) writeLocal(data); // account copy is written with the run
+    if (accountId) writeAccountCopy(); else writeLocal(data); // the account gets them with the run
     changed();
     return whole;
   }
@@ -367,30 +431,47 @@
     });
   }
 
+  // A store call, tried once more after a moment if the store was briefly unavailable.
+  function retry(call) {
+    return call().catch(function (e) {
+      if (!e || e.code !== "unavailable") throw e;
+      return new Promise(function (r) { setTimeout(r, 800 + Math.random() * 1200); }).then(call);
+    });
+  }
+
+  function fail(code) { var e = new Error(code); e.code = code; return e; }
+
   function connect() {
     var claude = window.claude;
     return Promise.all([claude.use("user"), claude.use("db")]).then(function (caps) {
       var user = caps[0], db = caps[1];
-      if (!user || !db) throw new Error("unavailable");
+      if (!user || !db) throw fail("unavailable");
       return Promise.all([user.id(), user.me()]).then(function (who) {
         var id = who[0], me = who[1];
-        if (!id) throw new Error("no-identity");
+        if (!id) throw fail("no-identity");
         var ref = db.doc("data/users/" + id + "/profile");
-        return ref.get().then(function (snap) {
-          var saved = snap.exists ? clean(snap.data()) : blank();
+        return retry(function () { return ref.get(); }).then(function (snap) {
+          var body = snap.exists ? snap.data() : null;
+          var saved = body ? clean(body) : blank();
+          // Progress this browser kept for the account and never got to write.
+          var copy = readAccountCopy(id);
+          var newer = !!copy && copy.at > ((body && +body.updatedAt) || 0);
+          if (newer) saved = copy.data;
           var guest = readLocal();
           var hasGuest = guest.runs > 0 || guest.gems > 0 || guest.skins.length > 0 || guest.advUnlocked > 1 || guest.upgrades.length > 0 ||
             guest.backgrounds.length > 0 || guest.slopes.length > 0 || guest.merge.best > 0;
           data = hasGuest ? merge(saved, guest) : saved;
-          remote = { ref: ref };
+          remote = { ref: ref, id: id };
+          accountId = id;
+          failures = 0;
+          lastWritten = body && !newer ? JSON.stringify(clean(body)) : "";
           account.signedIn = true;
           account.name = me.name || "";
           account.avatarUrl = me.avatarUrl || "";
           account.error = "";
-          if (hasGuest || !snap.exists) {
-            save();
-            writeLocal(blank()); // guest progress now belongs to the account
-          }
+          if (hasGuest) writeLocal(blank()); // guest progress now belongs to the account
+          writeAccountCopy();
+          if (hasGuest || newer || !body) scheduleFlush(0);
           changed();
         });
       });
@@ -405,12 +486,17 @@
     return window.claude.use("permissions").then(function (perms) {
       return perms ? perms.request(["user", "db"]) : null;
     }).then(function (states) {
-      if (states && (states.user === "denied" || states.db === "denied")) throw new Error("denied");
+      if (states && (states.user === "denied" || states.db === "denied")) throw fail("denied");
+      if (states && (states.user === "unavailable" || states.db === "unavailable")) throw fail("unavailable");
       return connect();
     }).catch(function (e) {
-      account.error = e && e.message === "denied"
+      var code = (e && e.code) || "error";
+      account.error = code === "denied"
         ? "Login was not allowed. You can turn it on in the artifact's Permissions menu."
-        : "Couldn't log in with Claude here, so progress is saved on this device.";
+        : code === "unavailable" || code === "not_granted" || code === "capability_disabled"
+          ? "Logging in with Claude isn't available here. Open the game on claude.ai to log in; until then progress is saved on this device."
+          : "Couldn't log in with Claude just now (" + code + "). Your progress is saved on this device; try again in a moment.";
+      console.warn("Slope profile: login failed", code, e);
     }).then(function () {
       account.busy = false;
       changed();
