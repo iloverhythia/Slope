@@ -1,0 +1,97 @@
+/* Platformer (platformer.js): its canvas over the game, the pause button and
+   the controls line. Its HUD, intro, pause, result and level screens use the
+   Adventure styles (adventure.css). Tokens from settings.css. */
+
+.slope-plat {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  background: #000;
+}
+
+.slope-plat[hidden] {
+  display: none;
+}
+
+/* Page drawing, so it gets the track colour tint like the game. */
+.slope-plat-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: url(#slope-tint);
+}
+
+.slope-plat-keys {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 8px 14px;
+  transform: translateX(-50%);
+  background: var(--slope-ground, #000);
+  box-shadow: inset 0 0 0 2px var(--slope-dim, #0a0);
+  color: var(--slope-color, #0f0);
+  font-family: var(--slope-text, monospace);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.slope-plat-keys[hidden] {
+  display: none;
+}
+
+.slope-plat-pause {
+  position: fixed;
+  z-index: 1000;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+}
+
+.slope-plat-pause[hidden] {
+  display: none;
+}
+
+/* Touch screens: a pad to roll (bottom left) and a jump button (bottom right). */
+.slope-plat-touch[hidden] {
+  display: none;
+}
+
+.slope-plat-pad {
+  position: fixed;
+  z-index: 1000;
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 4px;
+}
+
+.slope-plat-pad .slope-btn,
+.slope-plat-jump {
+  font-size: 22px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.slope-plat-touch-up { grid-column: 2; grid-row: 1; }
+.slope-plat-touch-left { grid-column: 1; grid-row: 2; }
+.slope-plat-touch-right { grid-column: 3; grid-row: 2; }
+.slope-plat-touch-down { grid-column: 2; grid-row: 3; }
+
+.slope-plat-jump {
+  position: fixed;
+  z-index: 1000;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+}

@@ -6,12 +6,18 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 
 ### Added in this version
 
-- **Game modes**: Play opens a picker with a moving preview of each mode. Again on the score screen keeps the mode.
+- **Game modes**: Play opens a picker: the modes in a list, grouped into Slope and Platformer, and the selected one with a big moving preview, what it is, its controls, your best and a Play button (up and down keys move through the list, Enter plays). Again on the score screen keeps the Slope mode.
   - **Classic**: the game as it is.
   - **Randomizer**: every few seconds a random effect for a short while. Some help (slow motion, gem rain, a gem magnet, double gems, a gem jackpot), some hurt (fast forward, mirrored steering, a blackout around the ball, a wobbling or blurred screen). A banner under the HUD shows the effect and the time left.
   - **Advanced**: every obstacle and slope from the Adventure levels, endlessly, a little closer together and quicker the further the ball gets. A hit is the game's own crash.
   - **Gem Rush**: 60 seconds to grab as many gems as you can. Three times the gems, and they fly to the ball. A countdown banner shows the time left; the run ends when it runs out. Its best and average are counted in gems.
   - **Legacy**: the original game's steering. The ball picks up sideways speed while a key is held and keeps sliding after it is let go, instead of the instant steering of the other modes.
+- **Platformer**: a 3D jumping game in Slope's world, from the Play picker. W A S D or the arrow keys roll the ball, Space jumps (hold it to jump higher), Esc pauses; on a touch screen a pad and a Jump button do the same. Black blocks float in the dark; everything red kills, and so does falling off.
+  - **11 obstacles**: gaps, red walls, steps, spikes, sliding blocks, narrow beams, moving lifts, spinning sweeper bars, blinking lasers (some too tall to jump: wait for them), bounce pads that throw the ball up a wall, and tiles that crumble once touched.
+  - **Endless**: one course that never ends, bringing in the obstacles over the first few hundred metres and getting harder up to 1500 m. Scored in metres.
+  - **Adventure**: a grid of levels with a finish line, one new obstacle a level for the first 11, then mixes of two or three. Beating one unlocks the next and keeps your best time.
+  - It wears your ball skin, background, track and pillar styles and track colour, picks up gems of every rarity, and earns XP. Career has its own stats.
+  - Every course is built within what the ball can do, and a search bot (trying runs, waits, back-ups and full or short jumps on the same physics) finishes Adventure levels 1 to 70 and Endless past 1200 m.
 
 - **Settings** (gear, top left): track color presets, a custom color, rainbow mode, the music switch (the game's own sound button is gone), and Auto / Low / High / Ultra graphics. Auto (the default) lowers the resolution when frames are dropped and raises it again when there is time to spare.
 - **Sharper graphics**: the game is drawn at full screen resolution or higher, with antialiasing, without changing its menus (`TemplateData/quality.js`).
@@ -39,7 +45,7 @@ Credit to https://github.com/cgolden15/Slope-Game/ for the source.
 
 The game is a compiled Unity build, so new behavior is added two ways:
 
-- Page scripts in `TemplateData/` read what the game draws and draw into it (`game-bridge.js`, `gems.js`, `skins.js`, `backgrounds.js`, `slopes.js`, `merge.js`, `modes.js`, `upgrades.js`, `adventure.js`, `audio.js`, `profile.js`, `career.js`, `settings.js`). They can also send events to the game's EventManager state machine (start a run, crash the ball, go back to the menu), or to another object's state machine (`SlopeGame.sendTo`, used to switch the steering for Legacy mode). `steer.js` can change what the game hears from the steering keys (mirrored, or sliding on ice).
+- Page scripts in `TemplateData/` read what the game draws and draw into it (`game-bridge.js`, `gems.js`, `skins.js`, `backgrounds.js`, `slopes.js`, `merge.js`, `modes.js`, `upgrades.js`, `adventure.js`, `audio.js`, `profile.js`, `career.js`, `settings.js`). The platformer is the page's own: `platformer-core.js` builds its courses and runs its physics (no page needed, so tools can test it), and `platformer.js` draws it in a WebGL2 canvas over the paused game. They can also send events to the game's EventManager state machine (start a run, crash the ball, go back to the menu), or to another object's state machine (`SlopeGame.sendTo`, used to switch the steering for Legacy mode). `steer.js` can change what the game hears from the steering keys (mirrored, or sliding on ice).
 - Small edits to the game's PlayMaker state machines in `Build/slope_data.unityweb`, made with the scripts in `tools/`:
   - steering sets the ball's sideways speed instead of pushing it with a force
   - a second set of steering states with the original force (`tools/patch_legacy.py`), switched on by the page's LegacySteerOn event for Legacy mode; every new run starts back on instant steering

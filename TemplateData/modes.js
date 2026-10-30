@@ -1,7 +1,12 @@
 /*
  * Game modes. The main menu's Play button opens a picker (the game signals
- * #slope-play, tools/patch_play.py) with a moving preview of each mode; the
- * run starts in the chosen mode, and Again keeps it.
+ * #slope-play, tools/patch_play.py): the modes in a list, grouped (Slope and
+ * Platformer), and the selected one's moving preview, what it is, your best
+ * and a Play button. A Slope run starts in the chosen mode, and Again keeps
+ * it. The platformer's modes start the platformer instead (platformer.js):
+ *
+ *   Platformer Endless     a course that never ends
+ *   Platformer Adventure   its level grid
  *
  *   Classic      the game as it is
  *   Randomizer   every few seconds a random effect for a short while: some
@@ -23,6 +28,7 @@
  *   SlopeModes.current()        the mode of the run being played
  *   SlopeModes.active(effect)   true while a Randomizer effect is on (or Gem Rush's gem rain and magnet)
  *   SlopeModes.open(from)       shows the picker
+ *   SlopeModes.play(id)         plays a mode, as its Play button does
  */
 (function () {
   "use strict";
@@ -31,14 +37,23 @@
   var profile = window.SlopeProfile;
   if (!game || !profile || !window.SlopeUI) return;
 
-  var STORAGE_KEY = "slope-mode";
+  var STORAGE_KEY = "slope-mode";        // the Slope mode Again plays
+  var PICK_KEY = "slope-mode-pick";      // the mode selected in the picker (any)
+  var SLOPE_KEYS = "Arrows or A/D to steer";
+  var PLAT_KEYS = "W A S D or arrows to roll, Space to jump";
+  var GROUPS = [{ id: "slope", name: "Slope" }, { id: "platformer", name: "Platformer", tag: "New" }];
   var MODES = [
-    { id: "classic", name: "Classic", text: "The original: the slope, your ball and nothing else in the way." },
-    { id: "randomizer", name: "Randomizer", text: "Every few seconds a random effect for a short while. Some help you, some get in your way." },
-    { id: "advanced", name: "Advanced", text: "Every obstacle and slope from the Adventure levels, all the way down: closer together and quicker the further you get." },
-    { id: "rush", name: "Gem Rush", text: "60 seconds to grab every gem you can. Three times the gems, and they fly to you." },
-    { id: "legacy", name: "Legacy", text: "The original steering: the ball picks up speed sideways while you hold a key, and keeps sliding when you let go." }
+    { id: "classic", group: "slope", name: "Classic", text: "The original: the slope, your ball and nothing else in the way.", keys: SLOPE_KEYS },
+    { id: "randomizer", group: "slope", name: "Randomizer", text: "Every few seconds a random effect for a short while. Some help you, some get in your way.", keys: SLOPE_KEYS },
+    { id: "advanced", group: "slope", name: "Advanced", text: "Every obstacle and slope from the Adventure levels, all the way down: closer together and quicker the further you get.", keys: SLOPE_KEYS },
+    { id: "rush", group: "slope", name: "Gem Rush", text: "60 seconds to grab every gem you can. Three times the gems, and they fly to you.", keys: SLOPE_KEYS },
+    { id: "legacy", group: "slope", name: "Legacy", text: "The original steering: the ball picks up speed sideways while you hold a key, and keeps sliding when you let go.", keys: SLOPE_KEYS },
+    { id: "plat-endless", group: "platformer", name: "Endless", play: "Play Endless",
+      text: "A 3D platformer in Slope's world. Roll, jump the gaps and dodge everything red on a course that never ends and gets harder the further you go.", keys: PLAT_KEYS },
+    { id: "plat-adventure", group: "platformer", name: "Adventure", play: "Choose a level",
+      text: "Platformer levels with a finish line: gaps, hurdles, spikes, lifts, sweepers, lasers, bounce pads and more, one new thing a level. Beat one to unlock the next.", keys: PLAT_KEYS }
   ];
+  function isPlatformer(id) { return /^plat-/.test(id); }
 
   var EFFECTS = [
     { id: "slowmo", name: "Slow-mo", text: "Everything slows down", good: true, seconds: 6 },
@@ -64,6 +79,9 @@
 
   var chosen = "classic";
   try { chosen = byId(MODES, localStorage.getItem(STORAGE_KEY)).id; } catch (e) {}
+  if (isPlatformer(chosen)) chosen = "classic";
+  var picked = chosen;
+  try { picked = byId(MODES, localStorage.getItem(PICK_KEY) || chosen).id; } catch (e) {}
   var current = null;   // the mode of the run in progress (null: not a mode run)
 
   // --- Randomizer --------------------------------------------------------------
@@ -260,6 +278,7 @@
   game.on("menu", function () { stopRandomizer(); hideBanner(); });
 
   function choose(id) {
+    if (isPlatformer(id)) return;
     chosen = byId(MODES, id).id;
     try { localStorage.setItem(STORAGE_KEY, chosen); } catch (e) {}
     if (window.SlopeAdventure && window.SlopeAdventure.setEndless) window.SlopeAdventure.setEndless(chosen === "advanced");
@@ -267,6 +286,9 @@
   choose(chosen);
 
   // --- Picker ---------------------------------------------------------------------
+  // The modes in a list on the left, grouped; the selected one on the right
+  // with a big moving preview. Up and down keys move through the list, Enter
+  // (or a double click) plays.
 
   var els = null, openedFrom = null, loop = 0, startedAt = 0;
 
@@ -280,18 +302,31 @@
     screen.innerHTML =
       '<div class="slope-career-inner slope-modes-inner">' +
         '<h2 class="slope-career-title" id="slope-modes-title">Play</h2>' +
-        '<p class="slope-shop-note">Pick a mode. Again on the score screen plays the same one.</p>' +
-        '<ul class="slope-modes-list">' +
-          MODES.map(function (m) {
-            return '<li class="slope-mode" data-mode="' + m.id + '">' +
-              '<canvas class="slope-mode-preview" aria-hidden="true"></canvas>' +
-              '<h3 class="slope-mode-name">' + m.name + "</h3>" +
-              '<p class="slope-mode-text">' + m.text + "</p>" +
-              '<p class="slope-mode-best"></p>' +
-              '<button type="button" class="slope-btn slope-mode-play">Play ' + m.name + "</button>" +
-            "</li>";
-          }).join("") +
-        "</ul>" +
+        '<div class="slope-modes-body">' +
+          '<nav class="slope-modes-nav" aria-label="Game modes">' +
+            GROUPS.map(function (g) {
+              return '<section class="slope-modes-group" aria-labelledby="slope-modes-group-' + g.id + '">' +
+                '<h3 class="slope-modes-group-title" id="slope-modes-group-' + g.id + '">' + g.name +
+                  (g.tag ? '<span class="slope-modes-tag">' + g.tag + "</span>" : "") + "</h3>" +
+                '<ul class="slope-modes-list">' +
+                  MODES.filter(function (m) { return m.group === g.id; }).map(function (m) {
+                    return '<li><button type="button" class="slope-btn slope-mode-row" data-mode="' + m.id + '" aria-pressed="false">' +
+                      '<span class="slope-mode-row-name">' + m.name + "</span>" +
+                      '<span class="slope-mode-row-best"></span></button></li>';
+                  }).join("") +
+                "</ul></section>";
+            }).join("") +
+          "</nav>" +
+          '<div class="slope-mode-detail">' +
+            '<canvas class="slope-mode-preview" aria-hidden="true"></canvas>' +
+            '<p class="slope-mode-group-name"></p>' +
+            '<h3 class="slope-mode-name" aria-live="polite"></h3>' +
+            '<p class="slope-mode-text"></p>' +
+            '<p class="slope-mode-keys"></p>' +
+            '<p class="slope-mode-best"></p>' +
+            '<button type="button" class="slope-btn slope-mode-play"></button>' +
+          "</div>" +
+        "</div>" +
         '<div class="slope-career-actions"><button type="button" class="slope-btn slope-back">Back</button></div>' +
       "</div>";
     ui.root.appendChild(screen);
@@ -311,34 +346,74 @@
     els = {
       screen: screen,
       back: screen.querySelector(".slope-back"),
-      cards: MODES.map(function (m) {
-        var li = screen.querySelector('[data-mode="' + m.id + '"]');
-        return { mode: m, li: li, canvas: li.querySelector("canvas"), best: li.querySelector(".slope-mode-best"), play: li.querySelector("button") };
+      canvas: screen.querySelector(".slope-mode-preview"),
+      group: screen.querySelector(".slope-mode-group-name"),
+      name: screen.querySelector(".slope-mode-name"),
+      text: screen.querySelector(".slope-mode-text"),
+      keys: screen.querySelector(".slope-mode-keys"),
+      best: screen.querySelector(".slope-mode-best"),
+      play: screen.querySelector(".slope-mode-play"),
+      rows: MODES.map(function (m) {
+        var b = screen.querySelector('.slope-mode-row[data-mode="' + m.id + '"]');
+        return { mode: m, button: b, best: b.querySelector(".slope-mode-row-best") };
       })
     };
-    els.cards.forEach(function (card) {
-      var scale = Math.min(2, window.devicePixelRatio || 1);
-      card.canvas.width = Math.round(240 * scale);
-      card.canvas.height = Math.round(150 * scale);
-      card.play.addEventListener("click", function () { play(card.mode.id); });
-      card.li.addEventListener("pointerenter", function () { mark(card.mode.id); });
+    var scale = Math.min(2, window.devicePixelRatio || 1);
+    els.canvas.width = Math.round(480 * scale);
+    els.canvas.height = Math.round(240 * scale);
+    els.rows.forEach(function (row, i) {
+      row.button.addEventListener("click", function () { select(row.mode.id); });
+      row.button.addEventListener("dblclick", function () { play(row.mode.id); });
+      row.button.addEventListener("keydown", function (e) {
+        var to = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? els.rows.length - 1 : null;
+        if (to !== null) {
+          e.preventDefault();
+          var next = els.rows[(to + els.rows.length) % els.rows.length];
+          select(next.mode.id);
+          next.button.focus();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          play(row.mode.id);
+        }
+      });
     });
+    els.play.addEventListener("click", function () { play(picked); });
     els.back.addEventListener("click", close);
     screen.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
   }
 
-  function mark(id) {
-    els.cards.forEach(function (c) { c.li.classList.toggle("is-chosen", c.mode.id === id); });
+  function groupOf(id) { return byId(GROUPS, byId(MODES, id).group); }
+
+  function select(id) {
+    var m = byId(MODES, id);
+    picked = m.id;
+    try { localStorage.setItem(PICK_KEY, picked); } catch (e) {}
+    els.rows.forEach(function (r) { r.button.setAttribute("aria-pressed", String(r.mode.id === picked)); });
+    els.group.textContent = groupOf(picked).name;
+    els.name.textContent = m.name;
+    els.text.textContent = m.text;
+    els.keys.textContent = m.keys;
+    els.best.textContent = bestLine(m.id, true);
+    els.play.textContent = m.play || "Play " + m.name;
+    lastDraw = 0;
+  }
+
+  // The best line of a mode: short in the list, longer under the preview.
+  function bestLine(id, long) {
+    var p = profile.get(), stats = p.modes || {};
+    if (id === "plat-adventure") {
+      var beaten = (p.platUnlocked || 1) - 1;
+      if (!beaten && !(stats.platadv && stats.platadv.runs)) return long ? "Not played yet" : "";
+      return long ? "Level " + p.platUnlocked + " next  \u00b7  " + beaten + (beaten === 1 ? " level" : " levels") + " beaten" : "Level " + p.platUnlocked;
+    }
+    var s = stats[id === "plat-endless" ? "platformer" : id];
+    if (!s || !s.runs) return long ? "Not played yet" : "";
+    var unit = id === "rush" ? " gems" : id === "plat-endless" ? " m" : "";
+    return long ? "Best " + s.best + unit + "  \u00b7  " + s.runs + (s.runs === 1 ? " run" : " runs") : "Best " + s.best + unit;
   }
 
   function renderBest() {
-    var stats = profile.get().modes || {};
-    els.cards.forEach(function (c) {
-      var s = stats[c.mode.id];
-      c.best.textContent = s && s.runs
-        ? "Best " + s.best + (c.mode.id === "rush" ? " gems" : "") + "  \u00b7  " + s.runs + (s.runs === 1 ? " run" : " runs")
-        : "Not played yet";
-    });
+    els.rows.forEach(function (r) { r.best.textContent = bestLine(r.mode.id, false); });
   }
 
   function open(from) {
@@ -348,14 +423,14 @@
     var toast = window.SlopeUI.root.querySelector(".slope-toast");
     if (toast) toast.hidden = true;
     renderBest();
-    mark(chosen);
+    select(picked);
     els.screen.hidden = false;
     els.screen.scrollTop = 0;
     if (game.pause) game.pause("modes");
     startedAt = performance.now();
     if (!loop) loop = requestAnimationFrame(tick);
-    var card = els.cards.filter(function (c) { return c.mode.id === chosen; })[0];
-    if (card) card.play.focus({ preventScroll: true });
+    var row = els.rows.filter(function (r) { return r.mode.id === picked; })[0];
+    if (row) row.button.focus({ preventScroll: true });
   }
 
   function close() {
@@ -367,7 +442,18 @@
   }
 
   function play(id) {
-    choose(id);
+    var m = byId(MODES, id);
+    if (isPlatformer(m.id)) {
+      var plat = window.SlopePlatformer;
+      if (!plat) return;
+      picked = m.id;
+      try { localStorage.setItem(PICK_KEY, picked); } catch (e) {}
+      close();
+      if (m.id === "plat-endless") plat.start("endless"); else plat.openLevels(null);
+      return;
+    }
+    select(m.id);
+    choose(m.id);
     close();
     game.send("resetPressed");
   }
@@ -375,9 +461,11 @@
   game.on("play", function () { open(null); });
 
   // --- Previews ----------------------------------------------------------------------
-  // The track drawn in perspective, rushing towards the viewer, with the ball
-  // weaving along it; Randomizer flashes its effects, Advanced brings
-  // obstacles, Gem Rush a stream of gems and its countdown.
+  // The selected mode, moving. Slope modes: the track drawn in perspective,
+  // rushing towards the viewer, with the ball weaving along it; Randomizer
+  // flashes its effects, Advanced brings obstacles, Gem Rush a stream of gems
+  // and its countdown. Platformer: blocks floating in the dark, the ball
+  // jumping a gap and a red wall.
 
   var NEON = "#00ff00", RED = "#ff1a10";
   var reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
@@ -389,9 +477,106 @@
     if (now - lastDraw >= 33) {
       lastDraw = now;
       var t = reduceMotion.matches ? 1.2 : (now - startedAt) / 1000;
-      els.cards.forEach(function (c) { drawPreview(c.canvas, c.mode.id, t); });
+      if (isPlatformer(picked)) drawPlatformer(els.canvas, picked === "plat-adventure", t);
+      else drawPreview(els.canvas, picked, t);
     }
     loop = requestAnimationFrame(tick);
+  }
+
+  // A ball (black, neon globe lines) at x, y with radius r, turned by t.
+  function ball(x, cx, cy, r, s, t) {
+    x.fillStyle = "#000";
+    x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = NEON;
+    x.lineWidth = 2 * s;
+    x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.stroke();
+    x.beginPath(); x.ellipse(cx, cy, r, r * Math.abs(Math.cos(t * 4)), 0, 0, Math.PI * 2); x.stroke();
+    x.beginPath(); x.moveTo(cx, cy - r); x.lineTo(cx, cy + r); x.stroke();
+  }
+
+  function label(x, text, W, s, colour) {
+    x.save();
+    x.font = (18 * s) + 'px "Slope Chargen", monospace';
+    x.textAlign = "center";
+    x.fillStyle = colour || NEON;
+    x.fillText(text, W / 2, 26 * s);
+    x.restore();
+  }
+
+  // The platformer: a repeating stretch of course coming towards the viewer
+  // (floor, gap, floor with a red wall, a step up), and the ball jumping it.
+  var PLAT_LOOP = 16;
+  var PLAT_PIECES = [
+    { from: 0, to: 6, h: 0 },
+    { from: 8.2, to: 16, h: 0, wall: 12 }
+  ];
+  function drawPlatformer(cv, adventure, t) {
+    var x = cv.getContext("2d"), W = cv.width, H = cv.height, s = H / 150;
+    x.fillStyle = "#000";
+    x.fillRect(0, 0, W, H);
+    var vy = H * 0.3, cx = W / 2, half = W * 0.2;
+    // A point at depth z (1 is the viewer's feet), sideways lateral, height h.
+    function at(z, lateral, h) { return [cx + lateral * half / z, vy + (H * 0.95 - vy - h * H * 0.42) / z]; }
+    var speed = 5, travel = t * speed, ballAt = 1.9;
+    // The pieces in view, far first.
+    var parts = [];
+    for (var k = -1; k < 5; k++) {
+      PLAT_PIECES.forEach(function (p) {
+        var z0 = k * PLAT_LOOP + p.from - travel + 1.2, z1 = k * PLAT_LOOP + p.to - travel + 1.2;
+        if (z1 < 0.9 || z0 > 30) return;
+        parts.push({ z0: Math.max(0.9, z0), z1: z1, wall: p.wall !== undefined ? k * PLAT_LOOP + p.wall - travel + 1.2 : null, fin: adventure && k % 3 === 2 });
+      });
+    }
+    parts.sort(function (a, b) { return b.z1 - a.z1; });
+    parts.forEach(function (p) {
+      var a = at(p.z0, -1, 0), b = at(p.z0, 1, 0), c = at(p.z1, 1, 0), d = at(p.z1, -1, 0);
+      var a2 = at(p.z0, -1, -0.35), b2 = at(p.z0, 1, -0.35);
+      x.globalAlpha = Math.min(1, 6 / p.z1);
+      // Front face, then the top with its tiles.
+      x.fillStyle = "#010601";
+      x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.lineTo(b2[0], b2[1]); x.lineTo(a2[0], a2[1]); x.closePath(); x.fill();
+      x.strokeStyle = NEON;
+      x.lineWidth = Math.max(1, 2 * s / p.z0);
+      x.stroke();
+      x.fillStyle = "#031503";
+      x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.lineTo(c[0], c[1]); x.lineTo(d[0], d[1]); x.closePath(); x.fill();
+      x.stroke();
+      x.lineWidth = Math.max(1, 1.2 * s / p.z0);
+      for (var z = Math.ceil(p.z0 + travel) - travel; z < p.z1; z += 1) {
+        var l = at(z, -1, 0), r = at(z, 1, 0);
+        x.globalAlpha = Math.min(1, 3 / z) * 0.6;
+        x.beginPath(); x.moveTo(l[0], l[1]); x.lineTo(r[0], r[1]); x.stroke();
+      }
+      x.globalAlpha = Math.min(1, 6 / p.z1);
+      if (p.wall !== null && p.wall > 1) {
+        var w0 = at(p.wall, -1, 0), w1 = at(p.wall, 1, 0.55), hgt = w0[1] - w1[1];
+        x.fillStyle = "rgba(255,26,16,0.25)";
+        x.fillRect(w0[0], w1[1], w1[0] - w0[0], hgt);
+        x.strokeStyle = RED;
+        x.lineWidth = Math.max(1, 2.5 * s / p.wall);
+        x.strokeRect(w0[0], w1[1], w1[0] - w0[0], hgt);
+      }
+      if (p.fin && p.z1 > 1) {
+        // Adventure: a finish gate at the end of every third stretch.
+        var g0 = at(p.z1 - 0.5, -1, 0), g1 = at(p.z1 - 0.5, 1, 1.4);
+        x.strokeStyle = "#fff";
+        x.lineWidth = Math.max(1, 3 * s / p.z1);
+        x.strokeRect(g0[0], g1[1], g1[0] - g0[0], g0[1] - g1[1]);
+      }
+      x.globalAlpha = 1;
+    });
+    // The ball: up over the gap and the wall.
+    var pos = (travel + ballAt - 1.2) % PLAT_LOOP, h = 0;
+    function hop(from, to, top) { if (pos > from && pos < to) { var u = (pos - from) / (to - from); h = Math.max(h, 4 * top * u * (1 - u)); } }
+    hop(4.6, 9.4, 1.2);
+    hop(10.6, 13.6, 1.0);
+    var under = at(ballAt, 0, 0), centre = at(ballAt, 0, h + 0.3), r = H * 0.09;
+    if (!(pos > 6 && pos < 8.2)) {
+      x.fillStyle = "rgba(0,0,0,0.6)";
+      x.beginPath(); x.ellipse(under[0], under[1], r * (1 - h * 0.25), r * 0.3, 0, 0, Math.PI * 2); x.fill();
+    }
+    ball(x, centre[0], centre[1] - r * 0.7, r, s, t);
+    label(x, adventure ? "Level " + (1 + Math.floor(t / 4) % 9) : Math.floor(t * speed) + " m", W, s);
   }
 
   function drawPreview(cv, mode, t) {
@@ -404,7 +589,7 @@
       x.translate(W / 2, H / 2); x.rotate(Math.sin(t * 3) * 0.12); x.scale(1.15, 1.15); x.translate(-W / 2, -H / 2);
     }
     var speed = effect && effect.id === "slowmo" ? 0.45 : effect && effect.id === "turbo" ? 1.8 : 1;
-    var vy = H * 0.3, cx = W / 2, half = W * 0.42;
+    var vy = H * 0.3, cx = W / 2, half = H * 0.65;
     function at(z, lateral) { return [cx + lateral * half / z, vy + (H - vy) / z]; }
     // The track: black, neon edges, chevrons coming closer.
     var a = at(1, -1), b = at(1, 1), far = at(40, 0);
@@ -524,6 +709,8 @@
       return true;
     },
     effects: EFFECTS,
-    open: function (from) { open(from); }
+    open: function (from) { open(from); },
+    play: function (id) { play(id); },
+    modes: MODES
   };
 })();
