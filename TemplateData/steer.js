@@ -4,9 +4,9 @@
  *
  *   mirror   left is right and right is left (the Randomizer's Mirror)
  *   ice      a turn goes on for a moment after the key is let go (ice slopes)
- *   wind     the ball is pushed one way: the game hears that key for one
- *            of every few frames it draws (a steady drift that can be
- *            steered against, never a sudden shove)
+ *   wind     the ball drifts one way while you aren't steering: the game
+ *            hears that key for one of every few frames it draws (a gentle
+ *            drift, never a shove, and never against a key you hold)
  *
  * While no filter is on, the keys go straight to the game. While one is on,
  * the real keys are caught before the game sees them, and the game hears
@@ -89,7 +89,8 @@
     } else {
       was = { left: left, right: right };
     }
-    if (filters.share > 0 && frameNo % Math.max(2, Math.round(1 / filters.share)) === 0) {
+    // The wind only pushes a ball nobody is steering: your keys always win.
+    if (filters.share > 0 && !left && !right && frameNo % Math.max(2, Math.round(1 / filters.share)) === 0) {
       left = filters.wind < 0;
       right = filters.wind > 0;
     }

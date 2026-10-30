@@ -12,8 +12,9 @@
  *
  * Some stretches of track are other kinds of slope, with their own floor:
  * a narrow winding trench, lava with a safe path through it, boost (the game
- * speeds up), ice (turns slide on after the key is let go) and wind (gusts
- * push the ball sideways; steer.js changes what the game hears from the keys).
+ * speeds up), ice (turns slide on after the key is let go) and wind (the
+ * ball drifts sideways while it isn't steered; steer.js changes what the game
+ * hears from the keys).
  *
  * Levels 1 to 18 bring in one new obstacle or slope each; after that every
  * level mixes two or three obstacles and often a slope or two, and they get
@@ -105,7 +106,7 @@
     lava: { name: "Lava slope", short: "Lava", text: "Keep to the dark path", path: true },
     boost: { name: "Boost slope", short: "Boost", text: "Everything speeds up" },
     ice: { name: "Ice slope", short: "Ice", text: "Turns slide on after you let go" },
-    wind: { name: "Wind slope", short: "Wind", text: "Gusts push you sideways" }
+    wind: { name: "Wind slope", short: "Wind", text: "The wind drifts you sideways when you don't steer" }
   };
   var SLOPE_ORDER = ["narrow", "boost", "ice", "lava", "wind"];
   // Levels 1 to 18 each bring in one new obstacle or slope.
@@ -124,7 +125,7 @@
   var SEGMENT = 3;               // slopes are built in pieces this long
   var BOOST = 1.3;               // game speed on a boost slope
   var ICE_SLIDE = 0.2;           // seconds a turn slides on, on ice
-  var WIND_SHARE = 0.25;         // share of the time a gust pushes, on a wind slope
+  var WIND_SHARE = 0.15;         // on a wind slope: the share of frames the wind pushes, when you aren't steering
 
   // Small seeded random generator (mulberry32): the same level is the same every time.
   function seeded(seed) {
@@ -1413,7 +1414,7 @@
     var info = SLOPES[zone.type];
     els.zone.querySelector(".slope-effect-name").textContent = info.name;
     els.zone.querySelector(".slope-effect-text").textContent =
-      zone.type === "wind" ? "Gusts push you " + (zone.dir < 0 ? "left" : "right") : info.text;
+      zone.type === "wind" ? "The wind drifts you " + (zone.dir < 0 ? "left" : "right") + ": steer against it" : info.text;
     // Under the level's progress panel while it shows.
     els.zone.style.top = els.hud && !els.hud.hidden ? Math.round(els.hud.getBoundingClientRect().bottom + 8) + "px" : "";
     els.zone.hidden = false;
