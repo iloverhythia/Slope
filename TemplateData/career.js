@@ -259,7 +259,8 @@
       if (!st || !box) return;
       (MODE_FIELDS[m[0]] || PLAIN_FIELDS).forEach(function (f) {
         var v = f[0] === "average" ? (st.runs ? st.total / st.runs : 0) : st[f[0]];
-        box.querySelector('[data-k="' + f[0] + '"]').textContent = fmt(v) + (f[2] || "");
+        // Gem Rush's best and average are gems: short (1.2K, 3.4M...).
+        box.querySelector('[data-k="' + f[0] + '"]').textContent = (m[0] === "rush" && f[0] !== "runs" ? abbr(v) : fmt(v)) + (f[2] || "");
       });
     });
     MORE_STATS.forEach(function (s, i) {

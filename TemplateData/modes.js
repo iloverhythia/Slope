@@ -409,7 +409,8 @@
     var s = stats[id === "plat-endless" ? "platformer" : id];
     if (!s || !s.runs) return long ? "Not played yet" : "";
     var unit = id === "rush" ? " gems" : id === "plat-endless" ? " m" : "";
-    return long ? "Best " + s.best + unit + "  \u00b7  " + s.runs + (s.runs === 1 ? " run" : " runs") : "Best " + s.best + unit;
+    var bestText = id === "rush" ? profile.short(s.best) : s.best;   // Gem Rush counts gems: 1.2K, 3.4M...
+    return long ? "Best " + bestText + unit + "  \u00b7  " + s.runs + (s.runs === 1 ? " run" : " runs") : "Best " + bestText + unit;
   }
 
   function renderBest() {
