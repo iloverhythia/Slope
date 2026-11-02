@@ -310,7 +310,8 @@
   animation: slope-ball-spin 9s linear infinite reverse;
 }
 
-.slope-merge-cell.is-tier-5 .slope-merge-level {
+/* The level (or a special ball's worth) stays on top of the ball and its effects. */
+.slope-merge-cell[class*="is-tier-"] .slope-merge-level {
   z-index: 2;
 }
 

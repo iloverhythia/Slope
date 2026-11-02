@@ -27,15 +27,32 @@
   var BASE_CLICKS = 10;
   var BOARDS = [{ cols: 4, size: 16 }, { cols: 5, size: 20 }, { cols: 5, size: 25 }, { cols: 6, size: 30 }, { cols: 6, size: 36 },
     { cols: 7, size: 42 }, { cols: 7, size: 49 }];
-  var STAR = -1, GEM = -2;    // special balls on the board
+  var STAR = -1, GEM = -2;    // special balls on the board (the first tier)
+  // Two matching special balls merge into the next tier: stars are odd
+  // (-1, -3, -5...), gem balls even (-2, -4, -6...), up to tier 10.
+  var MAX_TIER = 10;
+  var ROMAN = ["", "", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
+  var STAR_COLORS = [null, "#ffd43b", "#3bd5ff", "#ff5bd8", "#9b5bff", "#ff7a3b", "#3bff9e", "#ff3b3b", "#ffe8a0", "#ffffff"];
+  var GEM_COLORS = ["#ffcc33", "#ff8a3b", "#ff4fa0", "#3bd5ff", "#9b5bff", "#3bff6e", "#ff3b3b", "#7fffd4", "#ffd700", "#ffffff"];
+  function isStar(v) { return v < 0 && (-v) % 2 === 1; }
+  function isGem(v) { return v < 0 && (-v) % 2 === 0; }
+  function tierOf(v) { return Math.ceil(-v / 2); }
+  function starOf(t) { return -(2 * t - 1); }
+  function gemOf(t) { return -(2 * t); }
+  function starLevels(t) { return Math.pow(2, t) - 1; }           // +1, +3, +7, +15...
+  function specialName(v) { return (isStar(v) ? "Star" : "Gem ball") + ROMAN[tierOf(v)]; }
+  function specialColor(v) {
+    var t = tierOf(v) - 1;
+    return isStar(v) ? (STAR_COLORS[t] || window.SlopeUI.themeColor || "#00ff00") : GEM_COLORS[t];
+  }
   var NEW_BEST_GEMS = 5;      // gems for each new best level, times the level
   var BOOST_PER_LEVEL = 0.1;  // gem boost a level above the first, plus Gem charm
 
   var UPGRADES = [
     { key: "fast", name: "Fast hands", max: 7, base: 15, growth: 1.7,
       effect: function (l) { return (BASE_CLICKS - l) + " clicks a ball"; } },
-    { key: "auto", name: "Auto clicker", max: 10, base: 25, growth: 1.8,
-      effect: function (l) { return l ? fmtNum(l * 0.5) + (l * 0.5 === 1 ? " click" : " clicks") + " a second while open" : "Off"; } },
+    { key: "auto", name: "Auto clicker", max: 20, base: 25, growth: 1.8,
+      effect: function (l) { return l ? fmtNum(l * 0.5) + (l * 0.5 === 1 ? " click" : " clicks") + " a second" + (up("background") ? "" : " while open") : "Off"; } },
     { key: "double", name: "Double spawn", max: 10, base: 50, growth: 1.9,
       effect: function (l) { return (l * 6) + "% chance Spawn makes two balls"; } },
     { key: "better", name: "Better balls", max: Infinity, base: 60, growth: 2.2,
@@ -45,11 +62,27 @@
     { key: "star", name: "Star balls", max: 10, base: 70, growth: 2,
       effect: function (l) { return l ? (l * 2) + "% of new balls are stars: drop one on a ball (not your best) to level it up" : "None"; } },
     { key: "gemball", name: "Gem balls", max: 10, base: 40, growth: 1.85,
-      effect: function (l) { return l ? (l * 3) + "% of new balls are gem balls: click one for " + abbr(gemBallValue(l)) + " gems" : "None"; } },
+      effect: function (l) { return l ? (l * 3) + "% of new balls are gem balls: click one for " + abbr(Math.round(gemBallValue(l) * (1 + 0.25 * up("polish")))) + " gems" : "None"; } },
     { key: "pay", name: "Merge pay", max: 20, base: 90, growth: 1.9,
       effect: function (l) { return l ? "Every merge pays " + fmtNum(l * 0.5) + " gems per level of the new ball" : "Off"; } },
-    { key: "automerge", name: "Auto merge", max: 5, base: 150, growth: 2.4,
-      effect: function (l) { return l ? "Merges a pair by itself every " + autoMergeEvery(l) + " seconds while open" : "Off"; } },
+    { key: "automerge", name: "Auto merge", max: 10, base: 150, growth: 2.2,
+      effect: function (l) { return l ? "Merges the lowest pair by itself every " + fmtNum(autoMergeEvery(l)) + (autoMergeEvery(l) === 1 ? " second" : " seconds") + (up("background") ? "" : " while open") : "Off"; } },
+    { key: "multimerge", name: "Multi merge", max: 4, base: 400, growth: 2.6,
+      effect: function (l) { return "Auto merge merges " + (1 + l) + (l ? " pairs" : " pair") + " at a time"; } },
+    { key: "autospecial", name: "Special auto merge", max: 1, base: 600, growth: 1,
+      effect: function (l) { return l ? "Auto merge also merges matching stars and gem balls" : "Off: auto merge leaves stars and gem balls alone"; } },
+    { key: "background", name: "Background merge", max: 1, base: 2500, growth: 1,
+      effect: function (l) { return l ? "Auto clicker and auto merge keep going while Merge is closed" : "Off: they only work while Merge is open"; } },
+    { key: "power", name: "Power clicks", max: 10, base: 40, growth: 1.8,
+      effect: function (l) { return l ? (l * 5) + "% chance a click counts three times" : "Off"; } },
+    { key: "starpow", name: "Star power", max: 10, base: 120, growth: 2,
+      effect: function (l) { return l ? (l * 6) + "% of new stars come a tier higher" : "Off"; } },
+    { key: "polish", name: "Gem polish", max: 20, base: 60, growth: 1.7,
+      effect: function (l) { return "Gem balls are worth +" + (l * 25) + "%"; } },
+    { key: "echo", name: "Echo merge", max: 10, base: 200, growth: 2.2,
+      effect: function (l) { return l ? (l * 3) + "% chance a merge leaves one of its two balls behind" : "Off"; } },
+    { key: "jackpot", name: "Merge jackpot", max: 10, base: 90, growth: 1.9,
+      effect: function (l) { return l ? (l * 2) + "% chance a merge drops a gem ball" : "Off"; } },
     { key: "board", name: "Bigger board", max: BOARDS.length - 1, base: 80, growth: 2.5,
       effect: function (l) { return BOARDS[l].size + " spaces"; } },
     { key: "charm", name: "Gem charm", max: Infinity, base: 100, growth: 2,
@@ -73,7 +106,10 @@
   }
   function boostOf(m) { return m.best > 1 ? 1 + (m.best - 1) * (BOOST_PER_LEVEL + 0.02 * (m.up.charm || 0)) : 1; }
   function gemBallValue(l) { return Math.round((5 + 2 * Math.max(1, state.best)) * (1 + 0.1 * l)); }
-  function autoMergeEvery(l) { return Math.max(2, 12 - 2 * l); }
+  // A gem ball of tier t: three times the one below, plus Gem polish.
+  function gemValue(t) { return Math.round(gemBallValue(up("gemball")) * (1 + 0.25 * up("polish")) * Math.pow(3, t - 1)); }
+  // Seconds between auto merges: 10, 8, 6, 4, 2, then 1.7 down to 0.5 at level 10.
+  function autoMergeEvery(l) { return l <= 5 ? Math.max(2, 12 - 2 * l) : Math.max(0.5, Math.round((2 - 0.3 * (l - 5)) * 10) / 10); }
 
   function fitBoard() {
     var size = boardInfo().size;
@@ -97,16 +133,26 @@
   var STAR_DOTS = ["....#....", "...###...", "#########", ".#######.", "..#####..", ".###.###.", ".##...##."];
   var GEM_DOTS = ["..###..", ".#####.", "#######", ".#####.", "..###..", "...#..."];
   function specialImage(kind) {
-    var color = kind === STAR ? (window.SlopeUI.themeColor || "#00ff00") : "#ffcc33";
-    var rows = kind === STAR ? STAR_DOTS : GEM_DOTS, w = rows[0].length, h = rows.length;
+    var color = specialColor(kind), t = tierOf(kind);
+    var rows = isStar(kind) ? STAR_DOTS : GEM_DOTS, w = rows[0].length, h = rows.length;
     var cell = 34 / Math.max(w, h), ox = 32 - (w * cell) / 2, oy = 32 - (h * cell) / 2, dots = "";
     rows.forEach(function (row, y) {
       for (var x = 0; x < row.length; x++) {
         if (row[x] === "#") dots += '<circle cx="' + (ox + (x + 0.5) * cell).toFixed(1) + '" cy="' + (oy + (y + 0.5) * cell).toFixed(1) + '" r="' + (cell * 0.42).toFixed(2) + '"/>';
       }
     });
+    // Higher tiers: a second ring (2+), a glow (4+), and a pip for each tier along the top.
+    var pips = "";
+    for (var k = 1; k < t; k++) {
+      var ang = Math.PI * (1.15 + 0.7 * (k - 0.5) / Math.max(1, t - 1));
+      pips += '<circle cx="' + (32 + 24.5 * Math.cos(ang)).toFixed(1) + '" cy="' + (32 + 24.5 * Math.sin(ang)).toFixed(1) + '" r="2"/>';
+    }
     return "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
-      '<circle cx="32" cy="32" r="29" fill="#050505" stroke="' + color + '" stroke-width="3"/><g fill="' + color + '">' + dots + "</g></svg>");
+      (t >= 4 ? '<defs><radialGradient id="g"><stop offset="0.6" stop-color="' + color + '" stop-opacity="0.35"/><stop offset="1" stop-color="' + color + '" stop-opacity="0"/></radialGradient></defs>' +
+        '<circle cx="32" cy="32" r="32" fill="url(#g)"/>' : "") +
+      '<circle cx="32" cy="32" r="29" fill="#050505" stroke="' + color + '" stroke-width="3"/>' +
+      (t >= 2 ? '<circle cx="32" cy="32" r="24.5" fill="none" stroke="' + color + '" stroke-width="1" stroke-opacity="0.6"/>' : "") +
+      '<g fill="' + color + '">' + dots + pips + "</g></svg>");
   }
 
   function commit(notify) { profile.saveMerge(state, notify); state = profile.get().merge; }
@@ -167,7 +213,7 @@
             '<button type="button" class="slope-btn slope-merge-trash" aria-label="Bin: delete a ball">' + binIcon() + "<span>Bin</span></button>" +
             '<p class="slope-merge-hint">Click Spawn ' + BASE_CLICKS + ' times for a ball. Drag a ball onto one of the same level ' +
               "(or click one, then the other) to merge them. Every new level is a secret skin, and your best ball makes gems worth more. " +
-              "Stars level up any ball but your best; click a gem ball for gems. Drop a ball in the bin to delete it.</p>" +
+              "Stars level up any ball but your best; click a gem ball for gems. Two matching stars or gem balls merge into a stronger one. Drop a ball in the bin to delete it.</p>" +
             '<p class="slope-shop-status slope-merge-status" role="status"></p>' +
           "</div>" +
         "</div>" +
@@ -216,7 +262,8 @@
       els.upgradeRows[u.key] = row;
     });
 
-    els.spawn.addEventListener("click", function () { click(1); });
+    // Power clicks: now and then a click counts three times.
+    els.spawn.addEventListener("click", function () { click(Math.random() < up("power") * 0.05 ? 3 : 1); });
     els.trash.addEventListener("click", function () {
       if (selected >= 0) trash(selected);
       else say("Drag a ball onto the bin (or click a ball, then the bin) to delete it.");
@@ -257,7 +304,10 @@
 
   // --- Board ---------------------------------------------------------------------
 
+  function shown() { return !!els && !els.screen.hidden; }
+
   function renderBoard() {
+    if (!shown()) return;
     var info = boardInfo();
     els.board.style.setProperty("--cols", info.cols);
     while (els.cells.length < state.board.length) {
@@ -281,18 +331,23 @@
     c.el.classList.toggle("is-empty", !level);
     // Higher balls get flashier spaces: a glow (8+), a pulse (16+), a spinning
     // ring (28+), a rainbow ring (45+), a burst of rays (70+).
-    var tier = level > 0 ? (level >= 70 ? 5 : level >= 45 ? 4 : level >= 28 ? 3 : level >= 16 ? 2 : level >= 8 ? 1 : 0) : 0;
+    // Special balls glow from tier 3, and more the higher they go.
+    var tier = level > 0 ? (level >= 70 ? 5 : level >= 45 ? 4 : level >= 28 ? 3 : level >= 16 ? 2 : level >= 8 ? 1 : 0)
+      : level < 0 ? Math.min(5, Math.max(0, tierOf(level) - 2)) : 0;
     c.el.className = c.el.className.replace(/ ?is-tier-\d/g, "") + (tier ? " is-tier-" + tier : "");
-    if (tier) {
+    if (tier && level > 0) {
       var a = skin(level).trail || [0, 1, 0];
       c.el.style.setProperty("--ball-glow", "rgb(" + a.map(function (v) { return Math.round(v * 255); }).join(",") + ")");
-    } else c.el.style.removeProperty("--ball-glow");
+    } else if (tier) c.el.style.setProperty("--ball-glow", specialColor(level));
+    else c.el.style.removeProperty("--ball-glow");
     if (level < 0) {
       c.img.src = specialImage(level);
       c.img.hidden = false;
-      var value = gemBallValue(up("gemball"));
-      c.label.textContent = level === STAR ? "+1" : "+" + abbr(value);
-      c.el.setAttribute("aria-label", level === STAR ? "Star ball: drop it on any ball but your best to level that ball up" : "Gem ball: click it for " + value + " gems");
+      var t = tierOf(level), value = gemValue(t);
+      c.label.textContent = isStar(level) ? "+" + starLevels(t) : "+" + abbr(value);
+      c.el.setAttribute("aria-label", isStar(level)
+        ? specialName(level) + ": drop it on any ball but your best to raise it " + starLevels(t) + (t > 1 ? " levels" : " level") + (t < MAX_TIER ? ", or onto another " + specialName(level) + " to merge them" : "")
+        : specialName(level) + ": click it for " + fmt(value) + " gems" + (t < MAX_TIER ? ", or drag it onto another " + specialName(level) + " to merge them" : ""));
     } else if (level) {
       var url = image(level), s = skin(level);
       if (url) c.img.src = url; else c.img.removeAttribute("src");
@@ -307,6 +362,7 @@
   }
 
   function pop(i) {
+    if (!shown()) return;
     var el = els.cells[i].el;
     el.classList.remove("is-pop");
     void el.offsetWidth;   // restart the animation
@@ -325,16 +381,31 @@
       commit(false);
     } else if (a > 0 && a === b) {
       var lucky = Math.random() < up("lucky") * 0.04;
-      made(from, to, a + (lucky ? 2 : 1), lucky ? "Lucky! " : "");
-    } else if ((a === STAR && b > 0) || (b === STAR && a > 0)) {
-      // A star levels up any ball but your best: new bests come from merging.
-      var target = a === STAR ? b : a;
+      made(from, to, a + (lucky ? 2 : 1), lucky ? "Lucky! " : "", a);
+    } else if (a < 0 && a === b) {
+      // Two matching special balls: the next tier.
+      var t = tierOf(a);
+      if (t >= MAX_TIER) {
+        say(specialName(a) + " is as strong as it gets.");
+        renderBoard();
+        return;
+      }
+      var up1 = isStar(a) ? starOf(t + 1) : gemOf(t + 1);
+      state.board[to] = up1; state.board[from] = 0;
+      state.made += 1;
+      commit(false);
+      say("Merged into a " + specialName(up1) + "! " + (isStar(up1) ? "It raises a ball " + starLevels(t + 1) + " levels." : "It's worth " + abbr(gemValue(t + 1)) + " gems."));
+      pop(to);
+    } else if ((isStar(a) && b > 0) || (isStar(b) && a > 0)) {
+      // A star raises any ball but your best (as far as your best, no further):
+      // new bests come from merging.
+      var star = isStar(a) ? a : b, target = isStar(a) ? b : a;
       if (target >= state.best) {
         say("Stars can't level up your best ball (level " + state.best + "). Use it on a lower one.");
         renderBoard();
         return;
       }
-      made(from, to, target + 1, "Star! ");
+      made(from, to, Math.min(state.best, target + starLevels(tierOf(star))), specialName(star) + "! ");
     } else {
       state.board[to] = a; state.board[from] = b;
       commit(false);
@@ -342,10 +413,25 @@
     render();
   }
 
-  // A merge (or a star) made a ball of `level` at `to`.
-  function made(from, to, level, how) {
+  // A merge (or a star) made a ball of `level` at `to`. A merge of two balls
+  // of level `pair` can echo (one of them stays) or drop a jackpot gem ball.
+  function made(from, to, level, how, pair) {
     state.board[to] = level; state.board[from] = 0;
     state.made += 1;
+    if (pair && Math.random() < up("echo") * 0.03) {
+      state.board[from] = pair;
+      how = "Echo! " + how;
+    }
+    if (pair && Math.random() < up("jackpot") * 0.02) {
+      var empty = [];
+      state.board.forEach(function (v, i) { if (!v) empty.push(i); });
+      if (empty.length) {
+        var spot = empty[Math.floor(Math.random() * empty.length)];
+        state.board[spot] = GEM;
+        how = "Jackpot gem ball! " + how;
+        setTimeout(function () { pop(spot); }, 0);
+      }
+    }
     var pay = Math.round(level * up("pay") * 0.5);
     if (level > state.best) {
       var gems = NEW_BEST_GEMS * level;
@@ -364,11 +450,11 @@
 
   // A gem ball, clicked: its gems.
   function cashGem(i) {
-    var value = gemBallValue(up("gemball"));
+    var v = state.board[i], value = gemValue(tierOf(v));
     state.board[i] = 0;
     commit(false);
     profile.addGems(value);
-    say("Gem ball: +" + abbr(value) + " gems!");
+    say(specialName(v) + ": +" + abbr(value) + " gems!");
     render();
   }
 
@@ -386,13 +472,13 @@
     pendingTrash = -1;
     state.board[i] = 0;
     commit(false);
-    say(v === STAR ? "Star ball deleted." : v === GEM ? "Gem ball deleted." : "Level " + v + " ball deleted.");
+    say(v < 0 ? specialName(v) + " deleted." : "Level " + v + " ball deleted.");
     render();
   }
 
   function tap(i) {
     if (selected === -1) {
-      if (state.board[i] === GEM) { cashGem(i); return; }
+      if (isGem(state.board[i])) { cashGem(i); return; }
       if (state.board[i]) { selected = i; renderBoard(); }
       return;
     }
@@ -463,6 +549,8 @@
         // Sometimes a star or a gem ball (upgrades), and sometimes two balls.
         var r = Math.random(), starChance = up("star") * 0.02, gemChance = up("gemball") * 0.03;
         var kind = state.best && r < starChance ? STAR : state.best && r < starChance + gemChance ? GEM : spawnLevel();
+        // Star power: some stars come a tier (or two) higher.
+        if (kind === STAR && Math.random() < up("starpow") * 0.06) kind = starOf(Math.random() < 0.25 ? 3 : 2);
         var i = empty.splice(Math.floor(Math.random() * empty.length), 1)[0];
         state.board[i] = kind;
         state.clicks = 0;
@@ -478,8 +566,8 @@
         pop(i);
         if (second >= 0) pop(second);
         if (first) { renderSkins(); say("Your first ball! Merge two of the same level to make the next one."); }
-        else if (kind === STAR) say("A star ball! Drop it on any ball but your best to level that ball up.");
-        else if (kind === GEM) say("A gem ball! Click it for " + abbr(gemBallValue(up("gemball"))) + " gems.");
+        else if (isStar(kind)) say("A " + specialName(kind) + "! Drop it on any ball but your best to raise it " + starLevels(tierOf(kind)) + (tierOf(kind) > 1 ? " levels" : " level") + ", or merge two stars.");
+        else if (kind === GEM) say("A gem ball! Click it for " + abbr(gemValue(1)) + " gems, or merge two for a bigger one.");
         else if (second >= 0) say("Double spawn: two balls!");
       }
     } else {
@@ -489,6 +577,7 @@
   }
 
   function renderSpawn() {
+    if (!shown()) return;
     var need = clicksNeeded(), dots = "";
     for (var i = 0; i < need; i++) dots += '<span class="' + (i < state.clicks ? "is-on" : "") + '"></span>';
     els.dots.innerHTML = dots;
@@ -497,9 +586,11 @@
 
   function startAuto() {
     stopAuto();
+    if (!up("auto")) return;
     autoCarry = 0;
     var last = performance.now();
     autoTimer = setInterval(function () {
+      if (!keepRunning()) { stopAuto(); return; }
       var now = performance.now(), rate = up("auto") * 0.5;
       autoCarry += rate * Math.min(1, (now - last) / 1000);
       last = now;
@@ -516,15 +607,31 @@
     if (up("automerge")) autoMergeTimer = setInterval(autoMergeOnce, autoMergeEvery(up("automerge")) * 1000);
   }
   function stopAutoMerge() { clearInterval(autoMergeTimer); autoMergeTimer = 0; }
+  // The timers run while Merge is open, or always with Background merge.
+  function keepRunning() { return shown() || up("background") > 0; }
+  // The lowest pair first (Multi merge: several pairs at a time); with
+  // Special auto merge, matching stars and gem balls too, after the balls.
   function autoMergeOnce() {
+    if (!up("automerge") || !keepRunning()) { stopAutoMerge(); return; }
     if (drag || selected !== -1) return;   // never under the player's hand
-    var first = {}, pair = null;
-    state.board.forEach(function (v, i) {
-      if (v <= 0) return;
-      if (first[v] === undefined) first[v] = i;
-      else if (!pair || v < pair.level) pair = { from: i, to: first[v], level: v };
-    });
-    if (pair) act(pair.from, pair.to);
+    function rank(v) { return v > 0 ? v : 1e6 + tierOf(v); }
+    for (var k = 0, times = 1 + up("multimerge"); k < times; k++) {
+      var first = {}, pair = null;
+      state.board.forEach(function (v, i) {
+        if (!v || (v < 0 && (!up("autospecial") || tierOf(v) >= MAX_TIER))) return;
+        if (first[v] === undefined) first[v] = i;
+        else if (!pair || rank(v) < rank(pair.level)) pair = { from: i, to: first[v], level: v };
+      });
+      if (!pair) break;
+      act(pair.from, pair.to);
+    }
+  }
+
+  // Background merge: started with the page, and kept going after Merge closes.
+  function startBackground() {
+    if (!up("background")) return;
+    if (!autoTimer) startAuto();
+    if (!autoMergeTimer) startAutoMerge();
   }
 
   // --- Upgrades and skins ----------------------------------------------------------
@@ -552,11 +659,13 @@
     commit(true);
     if (u.key === "auto") startAuto();
     if (u.key === "automerge") startAutoMerge();
+    if (u.key === "background") startBackground();
     say(u.name + " is now " + (level + 1) + ": " + u.effect(level + 1) + ".");
     render();
   }
 
   function renderSkins() {
+    if (!shown()) return;
     var p = profile.get(), found = Math.max(state.best, p.secretBest || 0);
     els.skinsNote.textContent = found ? "You've found " + found + (found === 1 ? " ball" : " balls") + ". Merge for more: they never run out."
       : "Spawn your first ball to find the first one.";
@@ -593,14 +702,14 @@
   }
 
   function render() {
-    if (!els) return;
+    if (!shown()) return;
     renderSummary();
     renderBoard();
     renderSpawn();
     renderUpgrades();
   }
 
-  function say(text) { els.status.textContent = text; }
+  function say(text) { if (els) els.status.textContent = text; }
 
   // --- Open and close --------------------------------------------------------------
 
@@ -633,8 +742,11 @@
 
   function close() {
     endDrag();
-    stopAuto();
-    stopAutoMerge();
+    selected = -1;
+    if (!up("background")) {
+      stopAuto();
+      stopAutoMerge();
+    }
     els.screen.hidden = true;
     if (game.resume) game.resume("merge");
     if (openedFrom && document.contains(openedFrom)) openedFrom.focus();
@@ -644,7 +756,10 @@
 
   profile.onChange(function () { if (els && !els.screen.hidden) { renderUpgrades(); renderSummary(); } });
 
-  window.SlopeUI.ready(build);
+  window.SlopeUI.ready(function (ui) {
+    build(ui);
+    startBackground();
+  });
 
   window.SlopeMerge = {
     boost: function () { return boostOf(state); },

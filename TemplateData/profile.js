@@ -148,7 +148,8 @@
   // The merge game (merge.js): best ball level, the board (a level or 0 per
   // space), clicks towards the next ball and its upgrades.
   // (A function, so it is ready before the profile is first read.)
-  function mergeUpgrades() { return ["fast", "auto", "better", "lucky", "board", "charm", "double", "star", "gemball", "pay", "automerge"]; }
+  function mergeUpgrades() { return ["fast", "auto", "better", "lucky", "board", "charm", "double", "star", "gemball", "pay", "automerge",
+    "power", "starpow", "polish", "echo", "jackpot", "multimerge", "autospecial", "background"]; }
   function cleanMerge(m) {
     function n(v, max) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? Math.min(v, max) : 0; }
     var out = { best: 0, board: [], clicks: 0, made: 0, up: {} };
@@ -156,8 +157,9 @@
     out.best = n(m.best, 999999);
     out.clicks = n(m.clicks, 100);
     out.made = n(m.made, 1e12);
-    // A ball's level, 0 for an empty space, or a special ball: -1 star, -2 gem ball.
-    out.board = Array.isArray(m.board) ? m.board.slice(0, 64).map(function (v) { return v === -1 || v === -2 ? v : n(v, 999999); }) : [];
+    // A ball's level, 0 for an empty space, or a special ball: stars are odd
+    // (-1 a star, -3 a Star II... up to -19), gem balls even (-2, -4... -20).
+    out.board = Array.isArray(m.board) ? m.board.slice(0, 64).map(function (v) { return v < 0 && v >= -20 && v === Math.floor(v) ? v : n(v, 999999); }) : [];
     mergeUpgrades().forEach(function (k) { out.up[k] = n(m.up && m.up[k], 1000); });
     return out;
   }
