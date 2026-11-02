@@ -376,7 +376,8 @@
     var mult = fx.multiplier;
     if (els && els.mult) {
       // Everything a gem is worth: the tree, the merge game's best ball and Gem Prestige.
-      var worth = mult * (window.SlopeMerge ? window.SlopeMerge.boost() : 1) * (profile.boosts ? profile.boosts().gems : 1);
+      var worth = mult * (window.SlopeMerge ? window.SlopeMerge.boost() : 1) * (profile.boosts ? profile.boosts().gems : 1) *
+        (profile.ballBoosts ? profile.ballBoosts().gems : 1) * (window.SlopeClicker ? window.SlopeClicker.boosts().gems : 1);
       els.mult.textContent = worth > 1 ? fmtMult(worth) + " per gem" : "";
       els.mult.hidden = !(worth > 1);
     }

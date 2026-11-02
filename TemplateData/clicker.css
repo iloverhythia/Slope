@@ -1,0 +1,189 @@
+/* Core Clicker (clicker.js), on the Career screen's frame (career.css). Its
+   lists use the Merge game's rows (merge.css) and Overclock the prestige box
+   (shop.css). Tokens from settings.css. */
+
+.slope-clicker-open {
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+}
+
+.slope-clicker-inner {
+  width: min(860px, 100%);
+}
+
+.slope-clicker-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+
+/* The core and what floats off it. */
+.slope-clicker-core-wrap {
+  position: relative;
+  width: 240px;
+  height: 240px;
+}
+
+.slope-clicker-core {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.slope-clicker-core canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: url(#slope-tint);
+  pointer-events: none;
+}
+
+.slope-clicker-core:active canvas {
+  transform: scale(0.97);
+}
+
+.slope-clicker-core:focus-visible {
+  outline: 2px solid var(--slope-color);
+  outline-offset: -6px;
+}
+
+.slope-clicker-float {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  color: var(--slope-color);
+  font-family: var(--slope-display);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 4px #000, 0 0 4px #000;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: slope-clicker-float 0.9s ease-out forwards;
+}
+
+.slope-clicker-float.is-big {
+  color: #ffd43b;
+  font-size: 24px;
+}
+
+@keyframes slope-clicker-float {
+  0% { opacity: 1; transform: translate(-50%, -50%); }
+  100% { opacity: 0; transform: translate(-50%, -190%); }
+}
+
+/* A golden core turns up now and then: click it. */
+.slope-clicker-golden {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #1a1200;
+  box-shadow: inset 0 0 0 3px #ffd43b, 0 0 18px 2px #ffd43b;
+  color: #ffd43b;
+  animation: slope-clicker-golden 1.2s ease-in-out infinite;
+}
+
+.slope-clicker-golden[hidden] {
+  display: none;
+}
+
+@keyframes slope-clicker-golden {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+.slope-clicker-side {
+  display: flex;
+  flex: 1 1 300px;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 440px;
+}
+
+.slope-clicker-energy {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.slope-clicker-amount {
+  font-family: var(--slope-display);
+  font-size: 46px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-clicker-unit {
+  color: var(--slope-dim);
+  font-size: 15px;
+}
+
+.slope-clicker-rates,
+.slope-clicker-main {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-clicker-main {
+  padding: 6px 10px;
+  box-shadow: inset 0 0 0 1px var(--slope-color);
+}
+
+.slope-clicker-hint {
+  color: var(--slope-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Buy x1 / x10 / Max for the generators. */
+.slope-clicker-modes {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.slope-clicker-modes .slope-btn {
+  min-width: 64px;
+  min-height: 36px;
+  font-size: 16px;
+}
+
+.slope-clicker .slope-merge-buy:disabled,
+.slope-clicker .slope-merge-buy:disabled:hover,
+.slope-clicker .slope-prestige-btn:disabled,
+.slope-clicker .slope-prestige-btn:disabled:hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: not-allowed;
+}
+
+.slope-clicker .slope-prestige-btn.is-armed {
+  background: var(--slope-hover);
+  box-shadow: inset 0 0 0 2px var(--slope-hover);
+  color: var(--slope-ground);
+}
+
+.slope-clicker-over {
+  margin-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slope-clicker-float,
+  .slope-clicker-golden {
+    animation: none;
+  }
+}

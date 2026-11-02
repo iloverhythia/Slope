@@ -90,6 +90,7 @@
       (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *
       (window.SlopeProfile && window.SlopeProfile.boosts ? window.SlopeProfile.boosts().gems : 1) *   // Gem Prestige
       (window.SlopeProfile && window.SlopeProfile.ballBoosts ? window.SlopeProfile.ballBoosts().gems : 1) *   // the ball's level
+      (window.SlopeClicker ? window.SlopeClicker.boosts().gems : 1) *   // the Core Clicker
       (effect("double") ? 2 : 1);
   }
 

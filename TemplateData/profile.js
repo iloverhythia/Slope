@@ -41,6 +41,7 @@
  *   SlopeProfile.equipBackground(id)       "none" is the game's own black
  *   SlopeProfile.buySlope(id, price) / equipSlope(id)   "track-..." and "pillar-..." styles
  *   SlopeProfile.saveMerge(state, notify)  the merge game's state (get().merge)
+ *   SlopeProfile.saveClicker(state, notify)  the Core Clicker's state (get().clicker; clicker.js)
  *   SlopeProfile.spendGems(price)          true if paid
  *   SlopeProfile.completeLevel(n)     Adventure level n beaten: unlocks n + 1
  *   SlopeProfile.onChange(fn)
@@ -97,7 +98,26 @@
       slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null),
       gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null),
       rares: cleanRares(null), platUnlocked: 1, platWins: 0, platTimes: cleanTimes(null),
-      prestige: 0, prestiges: 0, secretBest: 0, ballLevels: {} };
+      prestige: 0, prestiges: 0, secretBest: 0, ballLevels: {}, clicker: cleanClicker(null) };
+  }
+
+  // The Core Clicker (clicker.js): energy, this run's total, all-time energy,
+  // taps, generators and upgrades (this run), shards (to spend), shards
+  // earned (all time), shard upgrades, overclocks and when it last ran.
+  // (A function, so it is ready before the profile is first read.)
+  function cleanClicker(c) {
+    function num(v) { v = +v; return isFinite(v) && v >= 0 ? v : 0; }
+    function int(v, max) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? Math.min(v, max) : 0; }
+    function levels(o, max) {
+      var out = {};
+      o = o && typeof o === "object" ? o : {};
+      Object.keys(o).forEach(function (k) { if (/^[a-z]{1,16}$/.test(k)) { var v = int(o[k], max); if (v) out[k] = v; } });
+      return out;
+    }
+    c = c && typeof c === "object" ? c : {};
+    return { energy: num(c.energy), total: num(c.total), allTime: num(c.allTime), taps: int(c.taps, 1e15),
+      gens: levels(c.gens, 1e6), up: levels(c.up, 1e4), shards: int(c.shards, 1e15), earned: int(c.earned, 1e15),
+      sup: levels(c.sup, 1e4), overclocks: int(c.overclocks, 1e9), last: num(c.last) };
   }
 
   // Ball levels: every ball (skin) has its own level, 1 to 100. The ball you
@@ -206,6 +226,7 @@
       else if (k === "backgrounds") b.backgrounds = Array.isArray(d.backgrounds) ? d.backgrounds.filter(isSkinId) : [];
       else if (k === "background") b.background = isSkinId(d.background) ? d.background : "none";
       else if (k === "merge") b.merge = cleanMerge(d.merge);
+      else if (k === "clicker") b.clicker = cleanClicker(d.clicker);
       else if (k === "modes") b.modes = cleanModes(d.modes);
       else if (k === "rares") b.rares = cleanRares(d.rares);
       else if (k === "platTimes") b.platTimes = cleanTimes(d.platTimes);
@@ -259,6 +280,7 @@
       backgrounds: data.backgrounds.slice(),
       slopes: data.slopes.slice(),
       merge: JSON.parse(JSON.stringify(data.merge)),
+      clicker: JSON.parse(JSON.stringify(data.clicker)),
       modes: JSON.parse(JSON.stringify(data.modes)),
       rares: Object.assign({}, data.rares),
       platTimes: Object.assign({}, data.platTimes),
@@ -353,7 +375,8 @@
 
   // XP for a score; the upgrade tree can add to it (upgrades.js).
   function xpFor(score) {
-    var boost = (window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1) * boostsFor(data.prestige).xp * ballBoosts().xp;
+    var boost = (window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1) * boostsFor(data.prestige).xp * ballBoosts().xp *
+      (window.SlopeClicker ? window.SlopeClicker.boosts().xp : 1);
     return Math.round(Math.max(0, Math.floor(score || 0)) * XP_PER_POINT * boost);
   }
 
@@ -435,7 +458,9 @@
     // Round down so 999,999 never shows as 1000K.
     var digits = v >= 100 ? 0 : v >= 10 ? 1 : 2, f = Math.pow(10, digits);
     v = Math.floor(v * f + 1e-9) / f;
-    return sign + v.toFixed(digits).replace(/\.?0+$/, "") + SUFFIXES[i];
+    var text = v.toFixed(digits);
+    if (digits) text = text.replace(/0+$/, "").replace(/\.$/, "");   // 1.50K -> 1.5K, 2.00M -> 2M (but 100K stays 100K)
+    return sign + text + SUFFIXES[i];
   }
 
   function addGems(n) {
@@ -545,6 +570,13 @@
 
   // Merge game state. notify: tell the page (the best ball changed); plain
   // board moves and clicks are only saved.
+  // The clicker saves often and quietly; notify: tell the page (its boosts changed).
+  function saveClicker(c, notify) {
+    data.clicker = cleanClicker(c);
+    save();
+    if (notify) changed();
+  }
+
   function saveMerge(m, notify) {
     data.merge = cleanMerge(m);
     data.secretBest = Math.max(data.secretBest, data.merge.best);
@@ -593,7 +625,7 @@
 
   // A run's score as ball XP for the ball you wear.
   function addBallXp(points) {
-    points = Math.max(0, Math.floor(points || 0));
+    points = Math.max(0, Math.floor((points || 0) * (window.SlopeClicker ? window.SlopeClicker.boosts().ballXp : 1)));   // the Core Clicker's Ball trainer
     var b = ballInfo(), level = b.level, xp = b.xp + points, gained = 0;
     if (!points || level >= BALL_MAX) return 0;
     while (level < BALL_MAX && xp >= ballNeed(level)) { xp -= ballNeed(level); level++; gained++; }
@@ -684,6 +716,8 @@
         o[k] = { runs: x.runs + y.runs, best: Math.max(x.best, y.best), total: x.total + y.total, dodged: x.dodged + y.dodged };
         return o;
       }, {}),
+      // The clicker that has made more energy over all time wins.
+      clicker: a.clicker.allTime >= b.clicker.allTime ? a.clicker : b.clicker,
       merge: {
         best: Math.max(a.merge.best, b.merge.best),
         board: a.merge.board.some(Boolean) ? a.merge.board : b.merge.board,
@@ -816,6 +850,7 @@
     buyBackground: buyBackground,
     buySlope: buySlope,
     saveMerge: saveMerge,
+    saveClicker: saveClicker,
     recordModeRun: recordModeRun,
     recordPlatformer: recordPlatformer,
     prestigeGain: function () { return prestigeGain(data); },
