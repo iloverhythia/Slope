@@ -25,6 +25,10 @@
  *   SlopeProfile.prestige()        Gem Prestige: resets the merge game and the upgrade tree
  *                                  for prestige points; returns the points gained (0: not yet)
  *   SlopeProfile.boosts()          { gems, xp, mergeStart } from prestige points
+ *   SlopeProfile.ball(id)          a ball's level: { level, xp, need, price, stage } (the equipped one without id)
+ *   SlopeProfile.addBallXp(points) the equipped ball's XP from a run; returns levels gained
+ *   SlopeProfile.levelUpBall(n)    spends gems on n levels (or as many as you can afford with n = Infinity); returns levels bought
+ *   SlopeProfile.ballBoosts()      { gems, xp, reach } from the equipped ball's level
  *   SlopeProfile.short(n)          a gem amount for the screen: 999, 1.23K, 45.6M, 789B, 1.2T, ... (Qa, Qi, Sx, Sp, Oc, No, Dc)
  *   SlopeProfile.xpFor(score)      XP a run with that score earns
  *   SlopeProfile.addGems(n)            n can be fractional (gem multiplier): the
@@ -93,7 +97,34 @@
       slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null),
       gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null),
       rares: cleanRares(null), platUnlocked: 1, platWins: 0, platTimes: cleanTimes(null),
-      prestige: 0, prestiges: 0, secretBest: 0 };
+      prestige: 0, prestiges: 0, secretBest: 0, ballLevels: {} };
+  }
+
+  // Ball levels: every ball (skin) has its own level, 1 to 100. The ball you
+  // wear earns ball XP from runs, and gems buy levels too. While worn, each
+  // level above the first is +2% gems and +1% XP, and every 10 levels +5%
+  // gem pickup reach. Its look evolves at the stage levels (skins.js).
+  var BALL_MAX = 100;
+  var BALL_STAGES = [[1, "Rookie"], [5, "Polished"], [10, "Glowing"], [20, "Orbiting"], [30, "Sparkling"], [40, "Charged"],
+    [50, "Radiant"], [75, "Mythic"], [100, "Legendary"]];
+  function ballNeed(level) { return 60 + 30 * level; }                         // ball XP (score points) to the next level
+  function ballPrice(level) { return Math.round(25 * Math.pow(1.3, level - 1)); }   // gems for the next level
+  function ballStage(level) {
+    var s = BALL_STAGES[0];
+    BALL_STAGES.forEach(function (x) { if (level >= x[0]) s = x; });
+    return s[1];
+  }
+  function cleanBalls(b) {
+    var out = {}, n = 0;
+    b = b && typeof b === "object" ? b : {};
+    Object.keys(b).forEach(function (id) {
+      var v = b[id];
+      if (!/^[a-z0-9-]{1,32}$/.test(id) || !v || typeof v !== "object" || n++ > 2000) return;
+      // (Runs while the profile is first read, before BALL_MAX is set: the number itself.)
+      var level = Math.max(1, Math.min(100, Math.floor(+v.level) || 1)), xp = Math.max(0, Math.floor(+v.xp) || 0);
+      if (level > 1 || xp > 0) out[id] = { level: level, xp: level >= 100 ? 0 : Math.min(xp, ballNeed(level) - 1) };
+    });
+    return out;
   }
 
   // Gem Prestige: each point is +25% gems and +10% XP for good, and every 3
@@ -178,6 +209,7 @@
       else if (k === "modes") b.modes = cleanModes(d.modes);
       else if (k === "rares") b.rares = cleanRares(d.rares);
       else if (k === "platTimes") b.platTimes = cleanTimes(d.platTimes);
+      else if (k === "ballLevels") b.ballLevels = cleanBalls(d.ballLevels);
       else if (k === "slopes") b.slopes = Array.isArray(d.slopes) ? d.slopes.filter(isSlopeId) : [];
       else if (k === "track" || k === "pillar") b[k] = isSlopeId(d[k]) && d[k].indexOf(k + "-") === 0 ? d[k] : k + "-classic";
       else if (typeof d[k] === "number" && isFinite(d[k]) && d[k] >= 0) b[k] = d[k];
@@ -230,6 +262,7 @@
       modes: JSON.parse(JSON.stringify(data.modes)),
       rares: Object.assign({}, data.rares),
       platTimes: Object.assign({}, data.platTimes),
+      ballLevels: JSON.parse(JSON.stringify(data.ballLevels)),
       level: info.level,
       levelXp: info.into,
       levelNeed: info.need,
@@ -320,7 +353,7 @@
 
   // XP for a score; the upgrade tree can add to it (upgrades.js).
   function xpFor(score) {
-    var boost = (window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1) * boostsFor(data.prestige).xp;
+    var boost = (window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1) * boostsFor(data.prestige).xp * ballBoosts().xp;
     return Math.round(Math.max(0, Math.floor(score || 0)) * XP_PER_POINT * boost);
   }
 
@@ -539,6 +572,50 @@
     changed();
   }
 
+  // --- Ball levels ---
+
+  function ballInfo(id) {
+    id = id || data.skin;
+    var b = data.ballLevels[id] || { level: 1, xp: 0 };
+    return { id: id, level: b.level, xp: b.xp, need: b.level >= BALL_MAX ? 0 : ballNeed(b.level),
+      price: b.level >= BALL_MAX ? 0 : ballPrice(b.level), stage: ballStage(b.level), max: BALL_MAX };
+  }
+
+  function ballBoosts() {
+    var l = ballInfo().level;
+    return { gems: 1 + 0.02 * (l - 1), xp: 1 + 0.01 * (l - 1), reach: 0.05 * Math.floor(l / 10) };
+  }
+
+  function setBall(id, level, xp) {
+    if (level <= 1 && xp <= 0) delete data.ballLevels[id];
+    else data.ballLevels[id] = { level: level, xp: xp };
+  }
+
+  // A run's score as ball XP for the ball you wear.
+  function addBallXp(points) {
+    points = Math.max(0, Math.floor(points || 0));
+    var b = ballInfo(), level = b.level, xp = b.xp + points, gained = 0;
+    if (!points || level >= BALL_MAX) return 0;
+    while (level < BALL_MAX && xp >= ballNeed(level)) { xp -= ballNeed(level); level++; gained++; }
+    setBall(b.id, level, level >= BALL_MAX ? 0 : xp);
+    save();
+    changed();
+    return gained;
+  }
+
+  // Buys up to n levels for the ball you wear with gems (n = Infinity: all you can afford).
+  function levelUpBall(n) {
+    var b = ballInfo(), level = b.level, cost = 0, bought = 0;
+    while (bought < (n || 1) && level < BALL_MAX && data.gems - cost >= ballPrice(level)) { cost += ballPrice(level); level++; bought++; }
+    if (!bought) return 0;
+    data.gems -= cost;
+    data.spent += cost;
+    setBall(b.id, level, level >= BALL_MAX ? 0 : b.xp);
+    save();
+    changed();
+    return bought;
+  }
+
   // Gem Prestige: the merge game (board, balls, its upgrades) and the upgrade
   // tree start over; gems, skins (secret ones too) and everything else stay.
   function prestige() {
@@ -590,6 +667,11 @@
       prestige: a.prestige + b.prestige,
       prestiges: a.prestiges + b.prestiges,
       secretBest: Math.max(a.secretBest, b.secretBest),
+      ballLevels: Object.keys(a.ballLevels).concat(Object.keys(b.ballLevels)).reduce(function (o, id) {
+        var x = a.ballLevels[id] || { level: 1, xp: 0 }, y = b.ballLevels[id] || { level: 1, xp: 0 };
+        o[id] = x.level !== y.level ? (x.level > y.level ? x : y) : { level: x.level, xp: Math.max(x.xp, y.xp) };
+        return o;
+      }, {}),
       platTimes: Object.keys(a.platTimes).concat(Object.keys(b.platTimes)).reduce(function (o, k) {
         var x = a.platTimes[k], y = b.platTimes[k];
         o[k] = x && y ? Math.min(x, y) : x || y;
@@ -741,6 +823,11 @@
     boosts: function () { return boostsFor(data.prestige); },
     boostsFor: boostsFor,
     short: short,
+    ball: ballInfo,
+    addBallXp: addBallXp,
+    levelUpBall: levelUpBall,
+    ballBoosts: ballBoosts,
+    ballStages: BALL_STAGES,
     completePlatLevel: completePlatLevel,
     spendGems: spendGems,
     equipSlope: equipSlope,

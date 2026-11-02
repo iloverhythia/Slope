@@ -19,6 +19,13 @@
  *   SlopeSkins.secret(level)   the merge game's secret skin for a ball level
  *   SlopeSkins.image(skin)     a still picture of a skin (data URL)
  *   SlopeSkins.equipped() / renderer(gl)   the worn skin, drawn in another WebGL2 context
+ *
+ * Ball levels (profile.js): every skin has a level, and its look evolves
+ * with it on top of its own pattern: more shine (5), a glowing rim in its
+ * trail colour (10), an orbiting band (20), sparkles (30), a second band and
+ * a pulse (40), an iridescent sheen (50), lightning (75), and a rainbow rim
+ * with a burning corona (100). The Skins tab shows the worn ball's level,
+ * what it gives, and buys levels with gems.
  */
 (function () {
   "use strict";
@@ -231,6 +238,8 @@
     "uniform int uBakeTint;",
     "uniform vec3 uSecretA, uSecretB;",
     "uniform vec4 uSecretP, uSecretQ;",
+    "uniform float uEvo;",            // the ball's level (profile.js)
+    "uniform vec3 uEvoColor;",
     "out vec4 outColor;",
     "",
     "const float PI = 3.14159265;",
@@ -669,6 +678,15 @@
     "    }",
     "    col += vec3(pow(max(dot(reflect(-v, n), uLight), 0.0), 30.0)) * 0.4;",
     "  }",
+    // The ball's level: its look evolves on top of the pattern.
+    "  if (uEvo >= 5.0) col += vec3(pow(max(dot(reflect(-v, n), uLight), 0.0), 60.0)) * min(1.0, (uEvo - 4.0) / 10.0) * 0.6;",
+    "  if (uEvo >= 10.0) col += uEvoColor * pow(1.0 - facing, 2.2) * (0.5 + 0.3 * sin(uTime * 2.5)) * min(1.0, (uEvo - 9.0) / 10.0) * 1.3;",
+    "  if (uEvo >= 20.0) { float e1 = uTime * 1.1; col += uEvoColor * line(abs(dot(p, normalize(vec3(sin(e1), 0.45, cos(e1))))), 0.025) * 0.9; }",
+    "  if (uEvo >= 30.0) { vec3 eq = p * 26.0; float eh = hash3(floor(eq) + 7.0); col += mix(uEvoColor, vec3(1.0), 0.6) * step(0.94, eh) * (1.0 - smoothstep(0.0, 0.3, length(fract(eq) - 0.5))) * (0.5 + 0.5 * sin(uTime * 5.0 + eh * 40.0)); }",
+    "  if (uEvo >= 40.0) { float e2 = -uTime * 0.8; col += uEvoColor * line(abs(dot(p, normalize(vec3(cos(e2), sin(e2 * 0.7), 0.6)))), 0.02) * 0.8; col *= 1.0 + 0.08 * sin(uTime * 4.0); }",
+    "  if (uEvo >= 50.0) col = mix(col, hue(facing * 0.7 + uTime * 0.12) * max(col.r, max(col.g, col.b)), 0.3);",
+    "  if (uEvo >= 75.0) { float ek = fbm(p * 3.2 + vec3(uTime * 0.5, 0.0, 0.0)); col += mix(uEvoColor, vec3(1.0), 0.5) * (1.0 - smoothstep(0.0, 0.03, abs(ek - 0.5))) * (0.6 + 0.4 * sin(uTime * 11.0 + ek * 25.0)); }",
+    "  if (uEvo >= 100.0) { col += hue(lon / 6.2832 - uTime * 0.25) * pow(1.0 - facing, 3.0) * 1.3; col += vec3(1.0, 0.75, 0.3) * smoothstep(0.55, 0.85, fbm(p * 4.5 - vec3(uTime))) * pow(1.0 - facing, 1.4) * 0.8; }",
     "  // A faint rim keeps the round shape visible where the body is black.",
     "  col += vec3(0.1) * pow(1.0 - facing, 2.5) * step(max(col.r, max(col.g, col.b)), 0.04);",
     "  // Shop previews bake in the track colour tint (the game gets it from CSS).",
@@ -691,13 +709,15 @@
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     var u = {};
-    ["uViewProjection", "uObjectToWorld", "uPattern", "uCamera", "uLight", "uTime", "uPoints", "uCount", "uSplit", "uTint", "uBakeTint",
+    ["uViewProjection", "uObjectToWorld", "uPattern", "uCamera", "uLight", "uTime", "uPoints", "uCount", "uSplit", "uTint", "uBakeTint", "uEvo", "uEvoColor",
      "uSecretA", "uSecretB", "uSecretP", "uSecretQ"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     this.gl = gl;
-    this.use = function (skin, vp, o2w, camera, light, time, tint) {
+    this.use = function (skin, vp, o2w, camera, light, time, tint, evo) {
       gl.useProgram(program);
+      gl.uniform1f(u.uEvo, evo === undefined ? ballLevel(skin.id) : evo);
+      gl.uniform3fv(u.uEvoColor, evoColor(skin, time));
       gl.uniformMatrix4fv(u.uViewProjection, false, vp);
       gl.uniformMatrix4fv(u.uObjectToWorld, false, o2w);
       gl.uniform1i(u.uPattern, skin.pattern);
@@ -716,6 +736,14 @@
         gl.uniform4fv(u.uSecretQ, skin.secret.q);
       }
     };
+  }
+
+  // A skin's ball level, and the colour its evolution glows in (its trail's).
+  function ballLevel(id) { return profile.ball ? profile.ball(id).level : 1; }
+  function evoColor(skin, time) {
+    var t = skin.trail;
+    if (t === "rainbow") return hsv((time * 0.15) % 1, 0.8, 1);
+    return t || [0.15, 1.0, 0.15];
   }
 
   // --- Matrices (column-major, like WebGL) ---------------------------------
@@ -765,7 +793,7 @@
   profile.onChange(function (p) { equipped = skinById(p.skin); });
 
   game.paintBall(function (ball) {
-    if (equipped.id === "classic" || inGameFailed) return false;
+    if ((equipped.id === "classic" && ballLevel("classic") < 5) || inGameFailed) return false;
     if (!inGame || inGame.gl !== ball.gl) {
       try {
         inGame = new Renderer(ball.gl);
@@ -990,7 +1018,8 @@
           '<button type="button" class="slope-btn slope-tab" role="tab" id="slope-tab-upgrades" aria-controls="slope-panel-upgrades" data-tab="upgrades">Upgrades</button>' +
         "</div>" +
         '<div class="slope-tab-panel" role="tabpanel" id="slope-panel-skins" aria-labelledby="slope-tab-skins">' +
-          '<p class="slope-shop-note">Collect gems on the track to buy ball skins. Each skin has its own speed-up trail.</p>' +
+          ballPanelHtml() +
+          '<p class="slope-shop-note">Collect gems on the track to buy ball skins. Each skin has its own speed-up trail, and its own level.</p>' +
           '<ul class="slope-skins">' +
             SKINS.map(function (s) {
               return '<li class="slope-skin" data-skin="' + s.id + '">' +
@@ -1021,6 +1050,18 @@
       tabs: Array.prototype.slice.call(screen.querySelectorAll(".slope-tab")),
       panels: { skins: screen.querySelector("#slope-panel-skins"), backgrounds: screen.querySelector("#slope-panel-backgrounds"),
         slope: screen.querySelector("#slope-panel-slope"), upgrades: screen.querySelector("#slope-panel-upgrades") },
+      ball: {
+        box: screen.querySelector(".slope-ball-level"),
+        pic: screen.querySelector(".slope-ball-level-pic"),
+        title: screen.querySelector(".slope-ball-level-title"),
+        stage: screen.querySelector(".slope-ball-level-stage"),
+        bar: screen.querySelector(".slope-ball-level-bar"),
+        xp: screen.querySelector(".slope-ball-level-xp"),
+        boosts: screen.querySelector(".slope-ball-level-boosts"),
+        one: screen.querySelector(".slope-ball-level-one"),
+        max: screen.querySelector(".slope-ball-level-max"),
+        status: screen.querySelector(".slope-ball-level-status")
+      },
       cards: SKINS.map(function (s) {
         var li = screen.querySelector('[data-skin="' + s.id + '"]');
         return {
@@ -1035,6 +1076,8 @@
       })
     };
 
+    els.ball.one.addEventListener("click", function () { levelUp(1); });
+    els.ball.max.addEventListener("click", function () { levelUp(Infinity); });
     els.cards.forEach(function (card) {
       card.canvas.width = card.canvas.height = Math.round(PREVIEW_CSS * PREVIEW_SCALE);
       card.li.__card = card;
@@ -1083,24 +1126,101 @@
     if (!els.screen.hidden) startLoop();
   }
 
+  // --- Ball levels -------------------------------------------------------------
+
+  // What each stage adds to the ball's look (the shader's uEvo steps).
+  var EVOLVE = [[5, "more shine"], [10, "a glowing rim"], [20, "an orbiting band"], [30, "sparkles"], [40, "a second band and a pulse"],
+    [50, "an iridescent sheen"], [75, "lightning"], [100, "a rainbow rim and a burning corona"]];
+
+  function ballPanelHtml() {
+    var cells = "";
+    for (var i = 0; i < 20; i++) cells += '<span class="slope-xp-cell"></span>';
+    return '<section class="slope-ball-level" aria-labelledby="slope-ball-level-title">' +
+      '<img class="slope-ball-level-pic" alt="">' +
+      '<div class="slope-ball-level-info">' +
+        '<h3 class="slope-ball-level-title" id="slope-ball-level-title"></h3>' +
+        '<p class="slope-ball-level-stage"></p>' +
+        '<div class="slope-xp-bar slope-ball-level-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Ball XP">' + cells + "</div>" +
+        '<p class="slope-ball-level-xp"></p>' +
+        '<p class="slope-ball-level-boosts"></p>' +
+        '<div class="slope-ball-level-actions">' +
+          '<button type="button" class="slope-btn slope-ball-level-one"></button>' +
+          '<button type="button" class="slope-btn slope-ball-level-max"></button>' +
+        "</div>" +
+        '<p class="slope-ball-level-status" role="status"></p>' +
+      "</div>" +
+    "</section>";
+  }
+
+  // How many levels the gems buy now, and for how much.
+  function maxLevels(b, gems) {
+    var level = b.level, cost = 0, n = 0;
+    while (level < b.max) {
+      var price = Math.round(25 * Math.pow(1.3, level - 1));
+      if (gems - cost < price) break;
+      cost += price; level++; n++;
+    }
+    return { n: n, cost: cost };
+  }
+
+  function renderBall(p) {
+    var e = els.ball;
+    if (!e || !profile.ball) return;
+    var b = profile.ball(), s = skinById(p.skin), boosts = profile.ballBoosts();
+    var pic = skinImage(s);
+    if (pic && e.pic.getAttribute("src") !== pic) e.pic.src = pic;
+    e.title.textContent = s.name + "  \u00b7  Level " + b.level + (b.level >= b.max ? " (max)" : "");
+    var next = null;
+    EVOLVE.forEach(function (x) { if (!next && x[0] > b.level) next = x; });
+    e.stage.textContent = b.stage + (next ? "  \u00b7  at level " + next[0] + ": " + next[1] : "  \u00b7  fully evolved");
+    var frac = b.need ? b.xp / b.need : 1;
+    Array.prototype.forEach.call(e.bar.children, function (c, i) { c.classList.toggle("is-on", i < Math.round(frac * 20)); });
+    e.bar.setAttribute("aria-valuenow", String(Math.round(frac * 100)));
+    e.xp.textContent = b.need ? abbr(b.xp) + " / " + abbr(b.need) + " ball XP (your score in runs with it on)" : "Top level";
+    e.boosts.textContent = b.level > 1
+      ? "+" + Math.round((boosts.gems - 1) * 100) + "% gems  \u00b7  +" + Math.round((boosts.xp - 1) * 100) + "% XP" + (boosts.reach ? "  \u00b7  +" + Math.round(boosts.reach * 100) + "% gem reach" : "") + " while it's on"
+      : "Each level: +2% gems and +1% XP while it's on; every 10 levels +5% gem reach";
+    var m = maxLevels(b, p.gems);
+    e.one.disabled = !b.price || p.gems < b.price;
+    e.one.innerHTML = b.price ? "Level up " + gemIcon() + "<span>" + abbr(b.price) + "</span>" : "Max level";
+    e.one.setAttribute("aria-label", b.price ? "Level up " + s.name + " for " + b.price.toLocaleString("en-US") + " gems" : s.name + " is at the top level");
+    e.max.disabled = m.n < 2;
+    e.max.innerHTML = m.n ? "Max: +" + m.n + (m.n === 1 ? " level " : " levels ") + gemIcon() + "<span>" + abbr(m.cost) + "</span>"
+      : b.level >= b.max ? "Max" : "Max: not enough gems";
+    e.max.setAttribute("aria-label", "Level up " + s.name + " " + m.n + " times for " + m.cost.toLocaleString("en-US") + " gems");
+  }
+
+  function levelUp(n) {
+    var before = profile.ball(), got = profile.levelUpBall(n);
+    if (!got) return;
+    var after = profile.ball(), name = skinById(profile.get().skin).name;
+    els.ball.status.textContent = after.stage !== before.stage
+      ? name + " evolved: " + after.stage + "! Level " + after.level + "."
+      : name + " is now level " + after.level + (got > 1 ? " (+" + got + ")" : "") + ".";
+  }
+
   function render(p) {
     if (!els.screen) return;
     els.gems.textContent = abbr(p.gems);
     els.gemsLabel.textContent = p.gems === 1 ? "gem" : "gems";
+    renderBall(p);
     els.cards.forEach(function (card) {
       var s = card.skin;
+      // A skin's level changed: its still is drawn again, evolved.
+      var lv = profile.ball ? profile.ball(s.id).level : 1;
+      if (card.evo !== lv) { if (card.evo !== undefined) card.dirty = true; card.evo = lv; }
       var owned = s.id === "classic" || p.skins.indexOf(s.id) !== -1;
       var on = skinById(p.skin).id === s.id;
       card.li.classList.toggle("is-equipped", on);
       card.action.disabled = false;
       card.action.removeAttribute("aria-pressed");
       if (on) {
-        card.price.textContent = "On your ball";
+        card.price.textContent = "On your ball" + (lv > 1 ? "  \u00b7  Lv " + lv : "");
         card.action.textContent = "Equipped";
         card.action.setAttribute("aria-pressed", "true");
         card.action.setAttribute("aria-label", s.name + ", equipped");
       } else if (owned) {
-        card.price.textContent = "Owned";
+        card.price.textContent = "Owned" + (lv > 1 ? "  \u00b7  Lv " + lv : "");
         card.action.textContent = "Equip";
         card.action.setAttribute("aria-label", "Equip " + s.name);
       } else {
@@ -1199,7 +1319,7 @@
   // colour tint), as a data URL for other screens. Kept per tint.
   var imageCache = {};
   function skinImage(skin) {
-    var key = skin.id + "/" + ((window.SlopeUI && window.SlopeUI.themeColor) || "");
+    var key = skin.id + "/" + ballLevel(skin.id) + "/" + ((window.SlopeUI && window.SlopeUI.themeColor) || "");
     if (imageCache[key]) return imageCache[key];
     if (preview === null) preview = setupPreview() || false;
     if (!preview) return null;

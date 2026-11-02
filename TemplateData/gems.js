@@ -89,6 +89,7 @@
     return (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (RARITIES[r] || RARITIES[0]).worth *
       (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *
       (window.SlopeProfile && window.SlopeProfile.boosts ? window.SlopeProfile.boosts().gems : 1) *   // Gem Prestige
+      (window.SlopeProfile && window.SlopeProfile.ballBoosts ? window.SlopeProfile.ballBoosts().gems : 1) *   // the ball's level
       (effect("double") ? 2 : 1);
   }
 
@@ -97,6 +98,7 @@
     var u = window.SlopeUpgrades;
     return u && u[name] ? u[name]() : 0;
   }
+  function ballReach() { return window.SlopeProfile && window.SlopeProfile.ballBoosts ? window.SlopeProfile.ballBoosts().reach : 0; }
   // A Randomizer effect (modes.js) going on now.
   function effect(name) {
     var m = window.SlopeModes;
@@ -193,7 +195,7 @@
   // Did the ball pass through the gem since the last frame? Checking the whole
   // path, not just where the ball is now, keeps fast balls and slow frames fair.
   function touches(g, from, to) {
-    var reach = 1 + upgrade("magnet") + (effect("magnet") ? 1.5 : 0);   // the Magnet upgrade reaches further sideways
+    var reach = 1 + upgrade("magnet") + (effect("magnet") ? 1.5 : 0) + ballReach();   // the Magnet upgrade (and the ball's level) reach further sideways
     var lo = Math.min(from.s, to.s) - PICKUP.s, hi = Math.max(from.s, to.s) + PICKUP.s;
     if (g.s < lo || g.s > hi) return false;
     var span = to.s - from.s;

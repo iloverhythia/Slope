@@ -91,6 +91,10 @@
         (profile.boosts ? profile.boosts().gems : 1);
       return "x" + m.toFixed(2);
     }],
+    ["Ball level", function (p) {
+      var b = profile.ball ? profile.ball() : null, s = window.SlopeSkins ? window.SlopeSkins.byId(p.skin) : null;
+      return b ? (s ? s.name + " " : "") + "Lv " + b.level + " (" + b.stage + ")" : "1";
+    }],
     ["Gem Prestige", function (p) { return p.prestige ? fmt(p.prestige) + " (" + fmt(p.prestiges) + (p.prestiges === 1 ? " reset)" : " resets)") : "None"; }],
     ["Total XP", function (p) { return fmt(p.xp); }],
     ["Longest run", function (p) { return fmtDuration(p.longestRun); }],
@@ -317,8 +321,9 @@
     els.toast.querySelector(".slope-toast-xp").textContent = "+" + fmt(result.xp) + " XP";
     fillCells(els.toast.querySelector(".slope-toast-bar"), p.levelXp / p.levelNeed);
     var levelLine = els.toast.querySelector(".slope-toast-level");
-    var leveled = result.levelAfter > result.levelBefore;
-    levelLine.textContent = leveled ? "Level up! Level " + result.levelAfter : "Level " + p.level;
+    var leveled = result.levelAfter > result.levelBefore, ball = profile.ball ? profile.ball() : null;
+    levelLine.textContent = (leveled ? "Level up! Level " + result.levelAfter : "Level " + p.level) +
+      (result.ballLevels && ball ? "  \u00b7  Ball level " + ball.level + "!" : "");
     els.toast.classList.toggle("is-level-up", leveled);
     els.toast.hidden = false;
     clearTimeout(toastTimer);
@@ -330,6 +335,8 @@
   game.on("runend", function (e) {
     var run = window.SlopeGems ? window.SlopeGems.currentRun() : { gems: 0, seconds: 0 };
     var result = profile.recordRun({ score: e.score, gems: run.gems, golds: run.golds, rares: run.rares, seconds: run.seconds });
+    // The ball you wear gets the score as ball XP.
+    result.ballLevels = profile.addBallXp ? profile.addBallXp(e.score) : 0;
     // Adventure levels show their own result screen.
     var adventure = window.SlopeAdventure && window.SlopeAdventure.handlesRun();
     if (els.toast && !adventure) showRunSummary(e.score, result, run.gems);

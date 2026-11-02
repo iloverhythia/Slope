@@ -564,6 +564,7 @@
       mode: mode === "adventure" ? "platadv" : "platformer", score: score, xpScore: xpScore, won: won,
       gems: tally.gems, golds: tally.golds, rares: tally.rares, seconds: seconds, jumps: run.jumps
     });
+    if (profile.addBallXp) result.ballLevels = profile.addBallXp(xpScore);   // the ball you wear levels up too
     var unlockedBefore = profile.get().platUnlocked;
     if (won) profile.completePlatLevel(levelN, seconds);
     hideIntro();
@@ -1098,7 +1099,8 @@
       : "Best " + fmt(Math.max(best, metres())) + " m") +
       "  \u00b7  " + run.jumps + (run.jumps === 1 ? " jump" : " jumps") +
       (tally.gems ? "  \u00b7  +" + profile.short(tally.gems) + (tally.gems === 1 ? " gem" : " gems") : "") +
-      (xp && xp.xp ? "  \u00b7  +" + fmt(xp.xp) + " XP" : "");
+      (xp && xp.xp ? "  \u00b7  +" + fmt(xp.xp) + " XP" : "") +
+      (xp && xp.ballLevels && profile.ball ? "  \u00b7  Ball level " + profile.ball().level + "!" : "");
     els.resultMain.textContent = adv ? (won ? "Next level" : "Retry") : "Again";
     els.resultMain.setAttribute("data-level", String(adv ? (won ? levelN + 1 : levelN) : 0));
     els.resultLevels.hidden = !adv;
