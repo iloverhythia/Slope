@@ -73,7 +73,7 @@
   function upPrice(u, l) { return Math.round(u.base * Math.pow(u.growth, l)); }
 
   function saveSeconds(l) { return l ? 3 + 3 * l : 0; }
-  function pullRadius(l) { return l ? 20 + 8 * l : 0; }
+  function pullRadius(l) { return l ? 18 + 3 * l : 0; }   // at most 48: never as far as the left bumper
   function bumperPoints(l) { return 100 * (1 + 0.5 * l); }
   function spinPoints(l) { return 30 * (1 + 0.5 * l); }
   function targetPoints(l) { return 500 * (1 + 0.5 * l); }
@@ -155,7 +155,7 @@
   sling(mirror([50, 440]), mirror([50, 512]), mirror([96, 548]));
 
   var targets = [330, 365, 400].map(function (y) { return wall(356, y - 13, 356, y + 13, 4, { target: true, up: true }); });
-  var bumpers = [[140, 200], [236, 200], [188, 268]].map(function (p) { return { x: p[0], y: p[1], r: 22, flash: 0 }; });
+  var bumpers = [[140, 200], [236, 200], [188, 268]].map(function (p) { return { x: p[0], y: p[1], r: 22, flash: 0, fired: -1 }; });
   var LANES = [150, 194, 238], LANE_Y = 88;
   var SPINNER = { x1: 10, x2: 66, y: 300 };
   var SAUCER = { x: 88, y: 140 };
@@ -208,7 +208,8 @@
     g = { score: 0, ball: 1, pf: 1, lanes: [false, false, false], laneFlash: 0, balls: [newBall(false)], queue: 0, time: 0, saveUntil: 0,
       chain: 0, lastHit: -9, over: false, paused: false, gems: 0, texts: [], jackpots: 0, msg: "", msgT: 0, bankDown: 0, magnetT: 0, nudges: 0, escapes: 0, hits: {} };
     targets.forEach(function (t) { t.up = true; });
-    pull = 0;
+    bumpers.forEach(function (b) { b.fired = -1; b.flash = 0; });
+    releaseAll();
     say("");
     render();
   }
@@ -280,7 +281,7 @@
     if (b.hold > 0) {
       b.hold -= dt;
       b.x = SAUCER.x; b.y = SAUCER.y;
-      if (b.hold <= 0) { b.vx = 300 + Math.random() * 120; b.vy = 480 + Math.random() * 80; b.cool = 0.6; }
+      if (b.hold <= 0) { b.vx = 40 + Math.random() * 60; b.vy = 380 + Math.random() * 80; b.cool = 1.5; }   // down past the left bumper, to the flippers
       return;
     }
     if (b.ready) {
@@ -315,7 +316,8 @@
     for (i = 0; i < bumpers.length; i++) {
       var bm = bumpers[i];
       var bh = push(b, bm.x, bm.y, bm.r, 0.6, 0, 0);
-      if (bh > 20) {
+      if (bh >= 0 && g.time - bm.fired > 0.06) {   // a pop bumper fires at any touch: nothing rests on it
+        bm.fired = g.time;
         b.vx += nx * 320; b.vy += ny * 320;
         hitBumper(bm);
       }
@@ -427,7 +429,7 @@
     g.over = true;
     g.balls = [];
     g.queue = 0;
-    flippers.forEach(function (f) { f.held = false; });
+    releaseAll();
     var tickets = ticketsFor(g.score), record = g.score > pb.best;
     pb.tickets += tickets;
     pb.games++;
@@ -449,13 +451,19 @@
     ArrowRight: "right", KeyM: "right", KeyD: "right", ShiftRight: "right", Slash: "right",
     Space: "launch", ArrowDown: "launch", KeyS: "launch"
   };
-  var held = { left: 0, right: 0, launch: 0 };
+  // What holds each control down (key codes, pointers): a control is on
+  // while anything holds it. Letting go always counts, even between games,
+  // so nothing stays held into the next game.
+  var holders = { left: {}, right: {}, launch: {} };
+  function hold(ctl, who, down) {
+    if (down) holders[ctl][who] = true; else delete holders[ctl][who];
+    apply(ctl, Object.keys(holders[ctl]).length > 0);
+  }
+  function press(ctl, down) { hold(ctl, "api", down); }
 
-  function press(ctl, down) {
+  function apply(ctl, on) {
     if (!g || g.over) return;
-    if (down && g.paused) { g.paused = false; last = 0; }
-    held[ctl] = Math.max(0, held[ctl] + (down ? 1 : -1));
-    var on = held[ctl] > 0;
+    if (on && g.paused) { g.paused = false; last = 0; }
     if (ctl === "launch") {
       if (on) pulling = true;
       else if (pulling) {
@@ -473,7 +481,7 @@
     f.held = on;
   }
   function releaseAll() {
-    held = { left: 0, right: 0, launch: 0 };
+    holders = { left: {}, right: {}, launch: {} };
     flippers.forEach(function (f) { f.held = false; });
     pulling = false;
     pull = 0;
@@ -828,13 +836,13 @@
       var ctl = waiting || (px > LANE_WALL - 10 && py > 400) ? "launch" : px < MID ? "left" : "right";
       pointers[e.pointerId] = ctl;
       try { els.canvas.setPointerCapture(e.pointerId); } catch (err) { /* old browsers */ }
-      press(ctl, true);
+      hold(ctl, "pointer" + e.pointerId, true);
     });
     function lift(e) {
       var ctl = pointers[e.pointerId];
       if (!ctl) return;
       delete pointers[e.pointerId];
-      press(ctl, false);
+      hold(ctl, "pointer" + e.pointerId, false);
     }
     els.canvas.addEventListener("pointerup", lift);
     els.canvas.addEventListener("pointercancel", lift);
@@ -855,13 +863,13 @@
       return;
     }
     e.preventDefault();
-    if (!e.repeat) press(ctl, true);
+    if (!e.repeat) hold(ctl, e.code, true);
   }
   function keyUp(e) {
     var ctl = KEYS[e.code];
-    if (!ctl || !g || g.over) return;
-    e.preventDefault();
-    if (held[ctl]) press(ctl, false);
+    if (!ctl) return;
+    if (g && !g.over) e.preventDefault();
+    hold(ctl, e.code, false);
   }
 
   function buy(u) {
