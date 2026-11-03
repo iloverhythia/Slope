@@ -84,8 +84,10 @@
   top: calc(12px + env(safe-area-inset-top, 0px));
   left: calc(12px + env(safe-area-inset-left, 0px));
   display: flex;
+  flex-wrap: wrap;            /* a narrow phone gets a second row */
   gap: 8px;
   align-items: stretch;
+  max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
 }
 
 .slope-gear {

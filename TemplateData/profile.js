@@ -42,6 +42,7 @@
  *   SlopeProfile.buySlope(id, price) / equipSlope(id)   "track-..." and "pillar-..." styles
  *   SlopeProfile.saveMerge(state, notify)  the merge game's state (get().merge)
  *   SlopeProfile.saveClicker(state, notify)  the Core Clicker's state (get().clicker; clicker.js)
+ *   SlopeProfile.savePinball(state, notify)  Neon Pinball's state (get().pinball; pinball.js)
  *   SlopeProfile.spendGems(price)          true if paid
  *   SlopeProfile.completeLevel(n)     Adventure level n beaten: unlocks n + 1
  *   SlopeProfile.onChange(fn)
@@ -98,7 +99,17 @@
       slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null),
       gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null),
       rares: cleanRares(null), platUnlocked: 1, platWins: 0, platTimes: cleanTimes(null),
-      prestige: 0, prestiges: 0, secretBest: 0, ballLevels: {}, clicker: cleanClicker(null) };
+      prestige: 0, prestiges: 0, secretBest: 0, ballLevels: {}, clicker: cleanClicker(null), pinball: cleanPinball(null) };
+  }
+
+  // Neon Pinball (pinball.js): tickets to spend, best score, games, all the
+  // score ever made, and its upgrades. (A function, ready before the first read.)
+  function cleanPinball(s) {
+    function int(v, max) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? Math.min(v, max) : 0; }
+    s = s && typeof s === "object" ? s : {};
+    var up = {};
+    if (s.up && typeof s.up === "object") Object.keys(s.up).forEach(function (k) { if (/^[a-z]{1,16}$/.test(k)) { var v = int(s.up[k], 1e4); if (v) up[k] = v; } });
+    return { tickets: int(s.tickets, 1e15), best: int(s.best, 1e15), games: int(s.games, 1e9), total: int(s.total, 1e18), up: up };
   }
 
   // The Core Clicker (clicker.js): energy, this run's total, all-time energy,
@@ -227,6 +238,7 @@
       else if (k === "background") b.background = isSkinId(d.background) ? d.background : "none";
       else if (k === "merge") b.merge = cleanMerge(d.merge);
       else if (k === "clicker") b.clicker = cleanClicker(d.clicker);
+      else if (k === "pinball") b.pinball = cleanPinball(d.pinball);
       else if (k === "modes") b.modes = cleanModes(d.modes);
       else if (k === "rares") b.rares = cleanRares(d.rares);
       else if (k === "platTimes") b.platTimes = cleanTimes(d.platTimes);
@@ -281,6 +293,7 @@
       slopes: data.slopes.slice(),
       merge: JSON.parse(JSON.stringify(data.merge)),
       clicker: JSON.parse(JSON.stringify(data.clicker)),
+      pinball: JSON.parse(JSON.stringify(data.pinball)),
       modes: JSON.parse(JSON.stringify(data.modes)),
       rares: Object.assign({}, data.rares),
       platTimes: Object.assign({}, data.platTimes),
@@ -376,7 +389,7 @@
   // XP for a score; the upgrade tree can add to it (upgrades.js).
   function xpFor(score) {
     var boost = (window.SlopeUpgrades && window.SlopeUpgrades.xp ? window.SlopeUpgrades.xp() : 1) * boostsFor(data.prestige).xp * ballBoosts().xp *
-      (window.SlopeClicker ? window.SlopeClicker.boosts().xp : 1);
+      (window.SlopeClicker ? window.SlopeClicker.boosts().xp : 1) * (window.SlopePinball ? window.SlopePinball.boosts().xp : 1);
     return Math.round(Math.max(0, Math.floor(score || 0)) * XP_PER_POINT * boost);
   }
 
@@ -568,8 +581,13 @@
     changed();
   }
 
-  // Merge game state. notify: tell the page (the best ball changed); plain
-  // board moves and clicks are only saved.
+  // Pinball saves after a game or a purchase; notify: tell the page (its boosts changed).
+  function savePinball(s, notify) {
+    data.pinball = cleanPinball(s);
+    save();
+    if (notify) changed();
+  }
+
   // The clicker saves often and quietly; notify: tell the page (its boosts changed).
   function saveClicker(c, notify) {
     data.clicker = cleanClicker(c);
@@ -577,6 +595,8 @@
     if (notify) changed();
   }
 
+  // Merge game state. notify: tell the page (the best ball changed); plain
+  // board moves and clicks are only saved.
   function saveMerge(m, notify) {
     data.merge = cleanMerge(m);
     data.secretBest = Math.max(data.secretBest, data.merge.best);
@@ -625,7 +645,8 @@
 
   // A run's score as ball XP for the ball you wear.
   function addBallXp(points) {
-    points = Math.max(0, Math.floor((points || 0) * (window.SlopeClicker ? window.SlopeClicker.boosts().ballXp : 1)));   // the Core Clicker's Ball trainer
+    points = Math.max(0, Math.floor((points || 0) * (window.SlopeClicker ? window.SlopeClicker.boosts().ballXp : 1) *   // the Core Clicker's Ball trainer
+      (window.SlopePinball ? window.SlopePinball.boosts().ballXp : 1)));   // and Pinball's Golden flippers
     var b = ballInfo(), level = b.level, xp = b.xp + points, gained = 0;
     if (!points || level >= BALL_MAX) return 0;
     while (level < BALL_MAX && xp >= ballNeed(level)) { xp -= ballNeed(level); level++; gained++; }
@@ -718,6 +739,7 @@
       }, {}),
       // The clicker that has made more energy over all time wins.
       clicker: a.clicker.allTime >= b.clicker.allTime ? a.clicker : b.clicker,
+      pinball: a.pinball.total >= b.pinball.total ? a.pinball : b.pinball,
       merge: {
         best: Math.max(a.merge.best, b.merge.best),
         board: a.merge.board.some(Boolean) ? a.merge.board : b.merge.board,
@@ -851,6 +873,7 @@
     buySlope: buySlope,
     saveMerge: saveMerge,
     saveClicker: saveClicker,
+    savePinball: savePinball,
     recordModeRun: recordModeRun,
     recordPlatformer: recordPlatformer,
     prestigeGain: function () { return prestigeGain(data); },

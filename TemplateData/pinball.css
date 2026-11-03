@@ -1,0 +1,121 @@
+/* Neon Pinball (pinball.js), on the Career screen's frame (career.css). Its
+   upgrade lists use the Merge game's rows (merge.css). Tokens from
+   settings.css. */
+
+.slope-pinball-open {
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+}
+
+.slope-pinball-inner {
+  width: min(900px, 100%);
+}
+
+.slope-pinball-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 22px;
+}
+
+/* The table keeps its 5:9 shape and fits the screen's height. */
+.slope-pinball-table {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: min(76vh, 640px);
+  aspect-ratio: 5 / 9;
+  object-fit: contain;
+  background: #000;
+  box-shadow: 0 0 0 2px var(--slope-color);
+  cursor: pointer;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.slope-pinball-table:focus-visible {
+  outline: 2px solid var(--slope-color);
+  outline-offset: 4px;
+}
+
+.slope-pinball-side {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 400px;
+}
+
+.slope-pinball-scoreline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.slope-pinball-score {
+  font-family: var(--slope-display);
+  font-size: 46px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-pinball-unit {
+  color: var(--slope-dim);
+  font-size: 15px;
+}
+
+.slope-pinball-info,
+.slope-pinball-main {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-pinball-main {
+  padding: 6px 10px;
+  box-shadow: inset 0 0 0 1px var(--slope-color);
+}
+
+.slope-pinball-tickets {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+
+.slope-pinball-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.slope-pinball-actions .slope-btn {
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: 18px;
+}
+
+.slope-pinball-actions .slope-btn[hidden] {
+  display: none;
+}
+
+.slope-pinball-hint {
+  color: var(--slope-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.slope-pinball .slope-merge-buy svg {
+  margin-right: 6px;
+}
+
+.slope-pinball .slope-merge-buy:disabled,
+.slope-pinball .slope-merge-buy:disabled:hover {
+  box-shadow: inset 0 0 0 2px var(--slope-dim);
+  color: var(--slope-dim);
+  cursor: not-allowed;
+}

@@ -89,12 +89,16 @@
     ["Gem multiplier", function () {
       var m = (window.SlopeUpgrades ? window.SlopeUpgrades.multiplier() : 1) * (window.SlopeMerge ? window.SlopeMerge.boost() : 1) *
         (profile.boosts ? profile.boosts().gems : 1) * (profile.ballBoosts ? profile.ballBoosts().gems : 1) *
-        (window.SlopeClicker ? window.SlopeClicker.boosts().gems : 1);
+        (window.SlopeClicker ? window.SlopeClicker.boosts().gems : 1) * (window.SlopePinball ? window.SlopePinball.boosts().gems : 1);
       return "x" + m.toFixed(2);
     }],
     ["Ball level", function (p) {
       var b = profile.ball ? profile.ball() : null, s = window.SlopeSkins ? window.SlopeSkins.byId(p.skin) : null;
       return b ? (s ? s.name + " " : "") + "Lv " + b.level + " (" + b.stage + ")" : "1";
+    }],
+    ["Neon Pinball", function (p) {
+      var b = p.pinball;
+      return b && b.games ? "Best " + abbr(b.best) + "  \u00b7  " + fmt(b.games) + (b.games === 1 ? " game" : " games") : "Not played yet";
     }],
     ["Core Clicker", function (p) {
       var k = p.clicker;
