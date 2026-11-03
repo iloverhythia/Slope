@@ -211,10 +211,10 @@
   // space), clicks towards the next ball and its upgrades.
   // (A function, so it is ready before the profile is first read.)
   function mergeUpgrades() { return ["fast", "auto", "better", "lucky", "board", "charm", "double", "star", "gemball", "pay", "automerge",
-    "power", "starpow", "polish", "echo", "jackpot", "multimerge", "autospecial", "background", "orderpay", "ordermore", "crate", "bomb", "combo"]; }
+    "power", "starpow", "polish", "echo", "jackpot", "multimerge", "autospecial", "background", "orderpay", "ordermore", "crate", "bomb", "combo", "autobox"]; }
   function cleanMerge(m) {
     function n(v, max) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? Math.min(v, max) : 0; }
-    var out = { best: 0, board: [], clicks: 0, made: 0, up: {}, orders: [], delivered: 0 };
+    var out = { best: 0, board: [], clicks: 0, made: 0, up: {}, orders: [], delivered: 0, boxOff: false };
     m = m && typeof m === "object" ? m : {};
     out.best = n(m.best, 999999);
     out.clicks = n(m.clicks, 100);
@@ -229,6 +229,7 @@
     // Orders: the level each order wants (up to five), and how many were delivered.
     out.orders = Array.isArray(m.orders) ? m.orders.slice(0, 5).map(function (v) { return n(v, 999999); }) : [];
     out.delivered = n(m.delivered, 1e12);
+    out.boxOff = m.boxOff === true;   // Auto open switched off
     return out;
   }
 
@@ -753,7 +754,8 @@
         made: a.merge.made + b.merge.made,
         up: mergeUpgrades().reduce(function (o, k) { o[k] = Math.max(a.merge.up[k], b.merge.up[k]); return o; }, {}),
         orders: a.merge.orders.length ? a.merge.orders : b.merge.orders,
-        delivered: a.merge.delivered + b.merge.delivered
+        delivered: a.merge.delivered + b.merge.delivered,
+        boxOff: a.merge.boxOff
       },
       advWins: a.advWins + b.advWins,
       recent: a.recent.concat(b.recent).sort(function (x, y) { return (x.at || 0) - (y.at || 0); })

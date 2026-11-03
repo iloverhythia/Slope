@@ -134,6 +134,17 @@
   min-height: 46px;
 }
 
+/* Auto open's switch: filled while on. */
+.slope-merge-autobox {
+  grid-column: 1 / -1;
+  min-height: 40px;
+  font-size: 16px;
+}
+
+.slope-merge-autobox[hidden] {
+  display: none;
+}
+
 /* Orders: a card for each, the ball it wants and what it pays. A ball
    dragged over one lights it up; one you have on the board is marked. */
 .slope-merge-orders-box {

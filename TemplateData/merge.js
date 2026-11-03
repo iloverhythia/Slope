@@ -21,7 +21,8 @@
  * Orders (three, up to five) each want a ball of some level: drag one onto
  * the order (or click it, then the order) for gems; every fifth brings a
  * crate. Merges less than 3 s apart build a combo, which pays with Merge
- * combo.
+ * combo. Auto open opens crates and sets off bombs by itself (a bomb once
+ * there is a pair to merge; it can be switched off, to keep a bomb for later).
  *
  *   SlopeMerge.boost()     the gem boost from the best ball (1 = none)
  *   SlopeMerge.open(from)
@@ -86,6 +87,8 @@
       effect: function (l) { return l ? (l * 2) + "% of new balls are crates: click one for a higher ball, a star, a gem ball, a bomb or gems" : "None (every fifth order brings one)"; } },
     { key: "bomb", name: "Merge bombs", max: 5, base: 500, growth: 2.4,
       effect: function (l) { return l ? l + "% of new balls are bombs: click one to merge every pair on the board at once" : "None (crates sometimes hold one)"; } },
+    { key: "autobox", name: "Auto open", max: 5, base: 300, growth: 2.2,
+      effect: function (l) { return l ? "Crates and bombs open by themselves after " + autoBoxDelay(l) + (autoBoxDelay(l) === 1 ? " second" : " seconds") + " (a bomb once there's a pair to merge)" + (up("background") ? "" : ", while open") : "Off: click them yourself"; } },
     { key: "pay", name: "Merge pay", max: 20, base: 90, growth: 1.9,
       effect: function (l) { return l ? "Every merge pays " + fmtNum(l * 0.5) + " gems per level of the new ball" : "Off"; } },
     { key: "orderpay", name: "Order bonus", max: 20, base: 80, growth: 1.8,
@@ -136,6 +139,8 @@
   // A gem ball of tier t: three times the one below, plus Gem polish.
   function gemValue(t) { return Math.round(gemBallValue(up("gemball")) * (1 + 0.25 * up("polish")) * Math.pow(3, t - 1)); }
   // Seconds between auto merges: 10, 8, 6, 4, 2, then 1.7 down to 0.5 at level 10.
+  // Seconds a crate or a bomb waits before Auto open opens it: 5 down to 1.
+  function autoBoxDelay(l) { return Math.max(1, 6 - l); }
   function autoMergeEvery(l) { return l <= 5 ? Math.max(2, 12 - 2 * l) : Math.max(0.5, Math.round((2 - 0.3 * (l - 5)) * 10) / 10); }
 
   function fitBoard() {
@@ -247,6 +252,7 @@
             '<div class="slope-merge-tools">' +
               '<button type="button" class="slope-btn slope-merge-sort" aria-label="Sort the board, highest first">Sort</button>' +
               '<button type="button" class="slope-btn slope-merge-trash" aria-label="Bin: delete a ball">' + binIcon() + "<span>Bin</span></button>" +
+              '<button type="button" class="slope-btn slope-merge-autobox" aria-pressed="true" hidden>Auto open: On</button>' +
             "</div>" +
             '<p class="slope-merge-hint">Click Spawn ' + BASE_CLICKS + ' times for a ball. Drag a ball onto one of the same level ' +
               "(or click one, then the other) to merge them. Every new level is a secret skin, and your best ball makes gems worth more. " +
@@ -292,6 +298,14 @@
       cells: [], upgradeRows: {}, skinCards: {}, orderCards: []
     };
     els.sort.addEventListener("click", sortBoard);
+    els.autobox = screen.querySelector(".slope-merge-autobox");
+    els.autobox.addEventListener("click", function () {
+      state.boxOff = !state.boxOff;
+      commit(false);
+      boxSeen = {};
+      say(state.boxOff ? "Auto open is off: crates and bombs wait for your click." : "Auto open is on: crates and bombs open by themselves.");
+      renderAutoBox();
+    });
     els.orders.addEventListener("click", function (e) {
       var skip = e.target.closest(".slope-merge-order-skip");
       if (skip) { skipOrder(+skip.getAttribute("data-order")); return; }
@@ -841,11 +855,39 @@
     }
   }
 
+  // Auto open: a crate or a bomb that has sat on the board for its wait is
+  // opened (one at a time, never under the player's hand).
+  var boxTimer = 0, boxSeen = {};
+  function startAutoBox() {
+    stopAutoBox();
+    if (up("autobox")) boxTimer = setInterval(autoBoxTick, 250);
+  }
+  function stopAutoBox() { clearInterval(boxTimer); boxTimer = 0; boxSeen = {}; }
+  function autoBoxTick() {
+    if (!up("autobox") || !keepRunning()) { stopAutoBox(); return; }
+    if (state.boxOff || drag || selected !== -1) { boxSeen = {}; return; }
+    var now = performance.now(), wait = autoBoxDelay(up("autobox")) * 1000, ready = -1, seen = {};
+    // A bomb waits for something to merge (it would go off for nothing).
+    var counts = {}, pairs = false;
+    state.board.forEach(function (v) { if (v > 0) { counts[v] = (counts[v] || 0) + 1; if (counts[v] > 1) pairs = true; } });
+    state.board.forEach(function (v, i) {
+      if (!isBox(v)) return;
+      var key = i + ":" + v;   // a crate that opens into a bomb starts its wait again
+      seen[key] = boxSeen[key] || now;
+      if (ready < 0 && now - seen[key] >= wait && (v === CRATE || pairs)) ready = i;
+    });
+    boxSeen = seen;
+    if (ready < 0) return;
+    delete boxSeen[ready + ":" + state.board[ready]];
+    if (state.board[ready] === CRATE) openCrate(ready); else explode(ready);
+  }
+
   // Background merge: started with the page, and kept going after Merge closes.
   function startBackground() {
     if (!up("background")) return;
     if (!autoTimer) startAuto();
     if (!autoMergeTimer) startAutoMerge();
+    if (!boxTimer) startAutoBox();
   }
 
   // --- Upgrades and skins ----------------------------------------------------------
@@ -873,6 +915,7 @@
     commit(true);
     if (u.key === "auto") startAuto();
     if (u.key === "automerge") startAutoMerge();
+    if (u.key === "autobox") startAutoBox();
     if (u.key === "background") startBackground();
     say(u.name + " is now " + (level + 1) + ": " + u.effect(level + 1) + ".");
     render();
@@ -922,7 +965,16 @@
     renderOrders();
     renderBoard();
     renderSpawn();
+    renderAutoBox();
     renderUpgrades();
+  }
+
+  function renderAutoBox() {
+    if (!shown()) return;
+    els.autobox.hidden = !up("autobox");
+    els.autobox.textContent = "Auto open: " + (state.boxOff ? "Off" : "On");
+    els.autobox.setAttribute("aria-pressed", String(!state.boxOff));
+    els.autobox.setAttribute("aria-label", "Auto open crates and bombs: " + (state.boxOff ? "off" : "on"));
   }
 
   function say(text) { if (els) els.status.textContent = text; }
@@ -953,6 +1005,7 @@
     renderSkins();
     if (up("auto")) startAuto();
     startAutoMerge();
+    startAutoBox();
     els.spawn.focus({ preventScroll: true });
   }
 
@@ -962,6 +1015,7 @@
     if (!up("background")) {
       stopAuto();
       stopAutoMerge();
+      stopAutoBox();
     }
     els.screen.hidden = true;
     if (game.resume) game.resume("merge");
