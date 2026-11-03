@@ -428,6 +428,7 @@
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     game.pause("platformer");
     game.resume("platformer-levels");   // started from the level grid
+    document.documentElement.classList.add("slope-own-game");   // the HUD makes room for the pause button (settings.css)
     showIntro();
     lastFrame = 0;
     if (!loop) loop = requestAnimationFrame(frame);
@@ -592,6 +593,7 @@
     els.keys.hidden = true;
     els.touch.hidden = true;
     hideIntro();
+    document.documentElement.classList.remove("slope-own-game");
     game.resume("platformer");
     if (toModes && window.SlopeModes) window.SlopeModes.open(null);
   }

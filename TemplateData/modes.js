@@ -3,10 +3,12 @@
  * #slope-play, tools/patch_play.py): the modes in a list, grouped (Slope and
  * Platformer), and the selected one's moving preview, what it is, your best
  * and a Play button. A Slope run starts in the chosen mode, and Again keeps
- * it. The platformer's modes start the platformer instead (platformer.js):
+ * it. The platformer's modes start the platformer instead (platformer.js),
+ * and Sky High its own 2D game (skyhigh.js):
  *
  *   Platformer Endless     a course that never ends
  *   Platformer Adventure   its level grid
+ *   Sky High               bounce up platforms, as high as you can go
  *
  *   Classic      the game as it is
  *   Randomizer   every few seconds a random effect for a short while: some
@@ -41,7 +43,8 @@
   var PICK_KEY = "slope-mode-pick";      // the mode selected in the picker (any)
   var SLOPE_KEYS = "Arrows or A/D to steer";
   var PLAT_KEYS = "W A S D to roll, Space to jump, arrows to look around";
-  var GROUPS = [{ id: "slope", name: "Slope" }, { id: "platformer", name: "Platformer", tag: "New" }];
+  var SKY_KEYS = "Left and Right arrows (or A and D) to steer; the ball bounces by itself";
+  var GROUPS = [{ id: "slope", name: "Slope" }, { id: "platformer", name: "Platformer" }, { id: "sky", name: "Sky High", tag: "New" }];
   var MODES = [
     { id: "classic", group: "slope", name: "Classic", text: "The original: the slope, your ball and nothing else in the way.", keys: SLOPE_KEYS },
     { id: "randomizer", group: "slope", name: "Randomizer", text: "Every few seconds a random effect for a short while. Some help you, some get in your way.", keys: SLOPE_KEYS },
@@ -51,9 +54,13 @@
     { id: "plat-endless", group: "platformer", name: "Endless", play: "Play Endless",
       text: "A 3D platformer in Slope's world. Roll, jump the gaps and dodge everything red on a winding course that never ends, and gets harder and faster the further you go.", keys: PLAT_KEYS },
     { id: "plat-adventure", group: "platformer", name: "Adventure", play: "Choose a level",
-      text: "Platformer levels with a finish line: gaps, hurdles, spikes, lifts, sweepers, lasers, bounce pads and more, one new thing a level. Beat one to unlock the next.", keys: PLAT_KEYS }
+      text: "Platformer levels with a finish line: gaps, hurdles, spikes, lifts, sweepers, lasers, bounce pads and more, one new thing a level. Beat one to unlock the next.", keys: PLAT_KEYS },
+    { id: "sky-high", group: "sky", name: "Sky High", play: "Play Sky High",
+      text: "A 2D climb: the ball bounces on every platform it lands on. Steer it onto the next one and go higher and higher, past moving, crumbling and trap platforms, springs, rockets and red mines.", keys: SKY_KEYS }
   ];
   function isPlatformer(id) { return /^plat-/.test(id); }
+  function isSky(id) { return id === "sky-high"; }
+  function ownGame(id) { return isPlatformer(id) || isSky(id); }   // not a Slope run
 
   var EFFECTS = [
     { id: "slowmo", name: "Slow-mo", text: "Everything slows down", good: true, seconds: 6 },
@@ -79,7 +86,7 @@
 
   var chosen = "classic";
   try { chosen = byId(MODES, localStorage.getItem(STORAGE_KEY)).id; } catch (e) {}
-  if (isPlatformer(chosen)) chosen = "classic";
+  if (ownGame(chosen)) chosen = "classic";
   var picked = chosen;
   try { picked = byId(MODES, localStorage.getItem(PICK_KEY) || chosen).id; } catch (e) {}
   var current = null;   // the mode of the run in progress (null: not a mode run)
@@ -278,7 +285,7 @@
   game.on("menu", function () { stopRandomizer(); hideBanner(); });
 
   function choose(id) {
-    if (isPlatformer(id)) return;
+    if (ownGame(id)) return;
     chosen = byId(MODES, id).id;
     try { localStorage.setItem(STORAGE_KEY, chosen); } catch (e) {}
     if (window.SlopeAdventure && window.SlopeAdventure.setEndless) window.SlopeAdventure.setEndless(chosen === "advanced");
@@ -406,9 +413,9 @@
       if (!beaten && !(stats.platadv && stats.platadv.runs)) return long ? "Not played yet" : "";
       return long ? "Level " + p.platUnlocked + " next  \u00b7  " + beaten + (beaten === 1 ? " level" : " levels") + " beaten" : "Level " + p.platUnlocked;
     }
-    var s = stats[id === "plat-endless" ? "platformer" : id];
+    var s = stats[id === "plat-endless" ? "platformer" : isSky(id) ? "sky" : id];
     if (!s || !s.runs) return long ? "Not played yet" : "";
-    var unit = id === "rush" ? " gems" : id === "plat-endless" ? " m" : "";
+    var unit = id === "rush" ? " gems" : id === "plat-endless" || isSky(id) ? " m" : "";
     var bestText = id === "rush" ? profile.short(s.best) : s.best;   // Gem Rush counts gems: 1.2K, 3.4M...
     return long ? "Best " + bestText + unit + "  \u00b7  " + s.runs + (s.runs === 1 ? " run" : " runs") : "Best " + bestText + unit;
   }
@@ -444,6 +451,14 @@
 
   function play(id) {
     var m = byId(MODES, id);
+    if (isSky(m.id)) {
+      if (!window.SlopeSky) return;
+      picked = m.id;
+      try { localStorage.setItem(PICK_KEY, picked); } catch (e) {}
+      close();
+      window.SlopeSky.start();
+      return;
+    }
     if (isPlatformer(m.id)) {
       var plat = window.SlopePlatformer;
       if (!plat) return;
@@ -478,7 +493,8 @@
     if (now - lastDraw >= 33) {
       lastDraw = now;
       var t = reduceMotion.matches ? 1.2 : (now - startedAt) / 1000;
-      if (isPlatformer(picked)) drawPlatformer(els.canvas, picked === "plat-adventure", t);
+      if (isSky(picked)) drawSky(els.canvas, t);
+      else if (isPlatformer(picked)) drawPlatformer(els.canvas, picked === "plat-adventure", t);
       else drawPreview(els.canvas, picked, t);
     }
     loop = requestAnimationFrame(tick);
@@ -581,6 +597,46 @@
     }
     ball(x, centre[0], centre[1] - r * 0.7, r, s, t);
     label(x, adventure ? "Level " + (1 + Math.floor(t / 4) % 9) : Math.floor(t * speed) + " m", W, s);
+  }
+
+  // Sky High: platforms going down the screen as the ball bounces up them,
+  // with a spring, a moving platform, gems and a mine now and then.
+  function drawSky(cv, t) {
+    var x = cv.getContext("2d"), W = cv.width, H = cv.height, s = H / 150;
+    x.fillStyle = "#000";
+    x.fillRect(0, 0, W, H);
+    var HOP = 0.62, GAP = 46, k = Math.floor(t / HOP), u = t / HOP - k;
+    function px(n) { return W / 2 + Math.sin(n * 2.3) * W * 0.18 + Math.sin(n * 0.7) * W * 0.06; }
+    function moving(n) { return n % 4 === 2; }
+    function platX(n) { return px(n) + (moving(n) ? Math.sin(t * 2) * 18 * s : 0); }
+    var camY = (k + u) * GAP - 40;
+    function sy(y) { return H - (y - camY) * s; }
+    // A dot grid drifting by.
+    x.fillStyle = NEON; x.globalAlpha = 0.1;
+    var g = 12 * s, off = (camY * s * 0.5) % g;
+    for (var gy = H + off; gy > -g; gy -= g) for (var gx = g / 2; gx < W; gx += g) x.fillRect(gx, gy, s, s);
+    x.globalAlpha = 1;
+    for (var n = k - 2; n < k + 6; n++) {
+      if (n < 0) continue;
+      var y = sy(n * GAP), cx = platX(n), hw = 18 * s;
+      x.fillStyle = "#000"; x.strokeStyle = n % 7 === 5 ? RED : NEON; x.lineWidth = 1.5 * s;
+      if (n % 7 === 5) x.setLineDash([4 * s, 3 * s]);
+      x.beginPath(); x.rect(cx - hw, y - 2.5 * s, hw * 2, 5 * s); x.fill(); x.stroke();
+      x.setLineDash([]);
+      if (n % 5 === 3) { x.fillStyle = "#ffd43b"; x.fillRect(cx - 5 * s, y - 9 * s, 10 * s, 2 * s); }
+      if (n % 3 === 1) {   // a gem
+        var gy2 = y - 16 * s;
+        x.strokeStyle = "#5ad1ff"; x.beginPath(); x.moveTo(cx, gy2 - 4 * s); x.lineTo(cx + 3 * s, gy2); x.lineTo(cx, gy2 + 4 * s); x.lineTo(cx - 3 * s, gy2); x.closePath(); x.stroke();
+      }
+      if (n % 6 === 4) {   // a mine off to the side
+        var mx = cx + (cx > W / 2 ? -1 : 1) * W * 0.3, my = sy(n * GAP + GAP / 2);
+        x.strokeStyle = RED; x.beginPath(); x.arc(mx, my, 5 * s, 0, Math.PI * 2); x.stroke();
+      }
+    }
+    // The ball: from platform k to k + 1 in an arc.
+    var bx = platX(k) + (platX(k + 1) - platX(k)) * u, by = sy(k * GAP + GAP * u + 34 * 4 * u * (1 - u) * 0.6 + 6), r = 7 * s;
+    ball(x, bx, by, r, s, t);
+    label(x, (k * 3) + " m", W, s);
   }
 
   function drawPreview(cv, mode, t) {

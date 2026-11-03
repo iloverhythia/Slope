@@ -90,6 +90,38 @@
   max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
 }
 
+/* Narrow phones: a tighter row, so it stays on one line. While a run of
+   Sky High or the platformer is on (its pause button top right), the
+   minigame buttons step aside. */
+@media (max-width: 440px) {
+  .slope-hud {
+    gap: 4px;
+  }
+
+  .slope-hud > .slope-hud-item {
+    gap: 5px;
+    padding: 0 8px;
+  }
+
+  .slope-hud > .slope-gear,
+  .slope-hud > .slope-clicker-open,
+  .slope-hud > .slope-pinball-open {
+    width: 40px;
+    padding: 0;
+  }
+
+  .slope-hud > .slope-merge-open {
+    width: 46px;
+    padding: 0;
+  }
+
+  .slope-own-game .slope-hud > .slope-merge-open,
+  .slope-own-game .slope-hud > .slope-clicker-open,
+  .slope-own-game .slope-hud > .slope-pinball-open {
+    display: none;
+  }
+}
+
 .slope-gear {
   display: grid;
   place-items: center;

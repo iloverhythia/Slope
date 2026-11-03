@@ -123,6 +123,82 @@
 }
 
 /* The bin: drop a ball on it to delete it. Lit while a ball is over it. */
+/* Sort and the bin, side by side. */
+.slope-merge-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.slope-merge-sort {
+  min-height: 46px;
+}
+
+/* Orders: a card for each, the ball it wants and what it pays. A ball
+   dragged over one lights it up; one you have on the board is marked. */
+.slope-merge-orders-box {
+  margin: 0 0 14px;
+}
+
+.slope-merge-orders {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slope-merge-orders li {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.slope-merge-order {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 108px;
+  padding: 8px 6px;
+  font-size: 15px;
+}
+
+.slope-merge-order img {
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+}
+
+.slope-merge-order-reward {
+  font-family: var(--slope-text);
+  font-size: 12px;
+}
+
+.slope-merge-order.is-ready {
+  box-shadow: inset 0 0 0 2px var(--slope-color), 0 0 10px var(--slope-color);
+}
+
+.slope-merge-order.is-over {
+  background: var(--slope-color);
+  color: var(--slope-ground);
+}
+
+.slope-merge-order-skip {
+  min-height: 28px;
+  box-shadow: inset 0 0 0 1px var(--slope-dim);
+  color: var(--slope-dim);
+  font-size: 13px;
+}
+
+.slope-merge-orders-empty {
+  color: var(--slope-dim);
+  font-size: 14px;
+}
+
 .slope-merge-trash {
   display: inline-flex;
   align-items: center;

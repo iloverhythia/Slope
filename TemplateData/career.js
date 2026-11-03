@@ -58,17 +58,18 @@
 
   // Per game mode (modes.js), and everything else worth counting.
   var MODE_STATS = [["classic", "Classic"], ["randomizer", "Randomizer"], ["advanced", "Advanced"], ["rush", "Gem Rush"], ["legacy", "Legacy"],
-    ["platformer", "Platformer Endless"], ["platadv", "Platformer Adventure"]];
+    ["platformer", "Platformer Endless"], ["platadv", "Platformer Adventure"], ["sky", "Sky High"]];
   // What each mode card shows: [stat, label, unit].
   var PLAIN_FIELDS = [["runs", "Runs"], ["best", "Best"], ["average", "Average"]];
   var MODE_FIELDS = {
     advanced: PLAIN_FIELDS.concat([["dodged", "Obstacles passed"]]),
     rush: [["runs", "Runs"], ["best", "Most gems"], ["average", "Average gems"]],
     platformer: [["runs", "Runs"], ["best", "Best distance", " m"], ["average", "Average distance", " m"], ["dodged", "Jumps"]],
-    platadv: [["runs", "Tries"], ["best", "Best level"], ["total", "Levels beaten"]]
+    platadv: [["runs", "Tries"], ["best", "Best level"], ["total", "Levels beaten"]],
+    sky: [["runs", "Runs"], ["best", "Best height", " m"], ["average", "Average height", " m"], ["dodged", "Bounces"]]
   };
-  // The platformer's cards only once it is on the page (platformer.js).
-  function shown(m) { return !/^plat/.test(m[0]) || !!window.SlopePlatformer; }
+  // The platformer's and Sky High's cards only once they are on the page (platformer.js, skyhigh.js).
+  function shown(m) { return m[0] === "sky" ? !!window.SlopeSky : !/^plat/.test(m[0]) || !!window.SlopePlatformer; }
   function rareText(p) {
     var r = p.rares || {}, names = window.SlopeGems ? window.SlopeGems.rarities : [];
     var total = 0, parts = [];

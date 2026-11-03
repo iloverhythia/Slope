@@ -195,7 +195,7 @@
   // counts gems in best and total.
   // platformer: the platformer's Endless (best in metres, dodged: jumps);
   // platadv: its Adventure levels (runs: tries, best: furthest level beaten, total: levels beaten).
-  function modeNames() { return ["classic", "randomizer", "advanced", "rush", "legacy", "platformer", "platadv"]; }
+  function modeNames() { return ["classic", "randomizer", "advanced", "rush", "legacy", "platformer", "platadv", "sky"]; }
   function cleanModes(m) {
     function n(v) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? v : 0; }
     var out = {};
@@ -211,18 +211,24 @@
   // space), clicks towards the next ball and its upgrades.
   // (A function, so it is ready before the profile is first read.)
   function mergeUpgrades() { return ["fast", "auto", "better", "lucky", "board", "charm", "double", "star", "gemball", "pay", "automerge",
-    "power", "starpow", "polish", "echo", "jackpot", "multimerge", "autospecial", "background"]; }
+    "power", "starpow", "polish", "echo", "jackpot", "multimerge", "autospecial", "background", "orderpay", "ordermore", "crate", "bomb", "combo"]; }
   function cleanMerge(m) {
     function n(v, max) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? Math.min(v, max) : 0; }
-    var out = { best: 0, board: [], clicks: 0, made: 0, up: {} };
+    var out = { best: 0, board: [], clicks: 0, made: 0, up: {}, orders: [], delivered: 0 };
     m = m && typeof m === "object" ? m : {};
     out.best = n(m.best, 999999);
     out.clicks = n(m.clicks, 100);
     out.made = n(m.made, 1e12);
     // A ball's level, 0 for an empty space, or a special ball: stars are odd
-    // (-1 a star, -3 a Star II... up to -19), gem balls even (-2, -4... -20).
-    out.board = Array.isArray(m.board) ? m.board.slice(0, 64).map(function (v) { return v < 0 && v >= -20 && v === Math.floor(v) ? v : n(v, 999999); }) : [];
+    // (-1 a star, -3 a Star II... up to -19), gem balls even (-2, -4... -20),
+    // a mystery crate -101 and a merge bomb -102.
+    out.board = Array.isArray(m.board) ? m.board.slice(0, 64).map(function (v) {
+      return (v < 0 && v >= -20 && v === Math.floor(v)) || v === -101 || v === -102 ? v : n(v, 999999);
+    }) : [];
     mergeUpgrades().forEach(function (k) { out.up[k] = n(m.up && m.up[k], 1000); });
+    // Orders: the level each order wants (up to five), and how many were delivered.
+    out.orders = Array.isArray(m.orders) ? m.orders.slice(0, 5).map(function (v) { return n(v, 999999); }) : [];
+    out.delivered = n(m.delivered, 1e12);
     return out;
   }
 
@@ -745,7 +751,9 @@
         board: a.merge.board.some(Boolean) ? a.merge.board : b.merge.board,
         clicks: a.merge.clicks,
         made: a.merge.made + b.merge.made,
-        up: mergeUpgrades().reduce(function (o, k) { o[k] = Math.max(a.merge.up[k], b.merge.up[k]); return o; }, {})
+        up: mergeUpgrades().reduce(function (o, k) { o[k] = Math.max(a.merge.up[k], b.merge.up[k]); return o; }, {}),
+        orders: a.merge.orders.length ? a.merge.orders : b.merge.orders,
+        delivered: a.merge.delivered + b.merge.delivered
       },
       advWins: a.advWins + b.advWins,
       recent: a.recent.concat(b.recent).sort(function (x, y) { return (x.at || 0) - (y.at || 0); })
