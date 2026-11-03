@@ -11,10 +11,15 @@
  * Special balls come from upgrades: a star (drop it on any ball, or any
  * ball on it, to level that ball up), a gem ball (click it for gems), a
  * mystery crate (click it for a surprise: a higher ball, a star, a gem ball,
- * a bomb or gems) and a merge bomb (click it to merge every pair on the
- * board at once). On the board stars are odd negatives (-1, -3...), gem
- * balls even ones (-2, -4...), a crate -101 and a bomb -102; balls are
- * their level. The bin deletes a ball dropped on it (or clicked, then the
+ * a bomb, one of the balls below, or gems), a merge bomb (click it to merge
+ * every pair on the board at once), a rainbow ball (it merges with any ball,
+ * your best too, as if it were its twin), an egg (click it to hatch three
+ * balls), a piggy ball (it fills up a little with every merge: click it for
+ * its gems) and a boost ball (while it is on the board, gems from Merge are
+ * worth +50%, up to three of them). On the board stars are odd negatives
+ * (-1, -3...), gem balls even ones (-2, -4...), a crate -101, a bomb -102,
+ * a boost ball -103, a rainbow ball -104, an egg -105 and a piggy ball
+ * -201 (empty) to -210 (full); balls are their level. The bin deletes a ball dropped on it (or clicked, then the
  * bin); your best ball only on the second try. Sort lines the board up,
  * highest first.
  *
@@ -44,18 +49,30 @@
   var ROMAN = ["", "", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
   var STAR_COLORS = [null, "#ffd43b", "#3bd5ff", "#ff5bd8", "#9b5bff", "#ff7a3b", "#3bff9e", "#ff3b3b", "#ffe8a0", "#ffffff"];
   var GEM_COLORS = ["#ffcc33", "#ff8a3b", "#ff4fa0", "#3bd5ff", "#9b5bff", "#3bff6e", "#ff3b3b", "#7fffd4", "#ffd700", "#ffffff"];
-  var CRATE = -101, BOMB = -102;
+  var CRATE = -101, BOMB = -102, BOOST = -103, RAINBOW = -104, EGG = -105, PIGGY = -201, PIGGY_FULL = -210;
+  var PIGGY_STEPS = 10, BOOST_MAX = 3;
   function isStar(v) { return v < 0 && v >= -20 && (-v) % 2 === 1; }
   function isGem(v) { return v < 0 && v >= -20 && (-v) % 2 === 0; }
-  function isBox(v) { return v === CRATE || v === BOMB; }   // a crate or a bomb: clicked, never merged
+  function isPiggy(v) { return v <= PIGGY && v >= PIGGY_FULL; }
+  function piggyStep(v) { return PIGGY - v; }                      // 0 (empty) to 9 (full)
+  function isThing(v) { return v <= -101; }                         // not a tiered special: never merged into tiers, auto merge leaves it
+  function isBox(v) { return v === CRATE || v === BOMB || v === EGG; }   // clicked open (and by Auto open)
   function tierOf(v) { return Math.ceil(-v / 2); }
   function starOf(t) { return -(2 * t - 1); }
   function gemOf(t) { return -(2 * t); }
   function starLevels(t) { return Math.pow(2, t) - 1; }           // +1, +3, +7, +15...
-  function specialName(v) { return v === CRATE ? "Mystery crate" : v === BOMB ? "Merge bomb" : (isStar(v) ? "Star" : "Gem ball") + ROMAN[tierOf(v)]; }
+  function specialName(v) {
+    return v === CRATE ? "Mystery crate" : v === BOMB ? "Merge bomb" : v === BOOST ? "Boost ball" : v === RAINBOW ? "Rainbow ball" :
+      v === EGG ? "Egg" : isPiggy(v) ? "Piggy ball" : (isStar(v) ? "Star" : "Gem ball") + ROMAN[tierOf(v)];
+  }
+  var RAINBOW_ROWS = ["#ff3b3b", "#ff9b3b", "#ffe43b", "#3bff6e", "#3bd5ff", "#9b5bff"];
   function specialColor(v) {
     if (v === CRATE) return "#e0a050";
     if (v === BOMB) return "#ff5533";
+    if (v === BOOST) return "#3bffd8";
+    if (v === RAINBOW) return "#ff5bd8";
+    if (v === EGG) return "#fff1c9";
+    if (isPiggy(v)) return "#ff8fc8";
     var t = tierOf(v) - 1;
     return isStar(v) ? (STAR_COLORS[t] || window.SlopeUI.themeColor || "#00ff00") : GEM_COLORS[t];
   }
@@ -87,8 +104,16 @@
       effect: function (l) { return l ? (l * 2) + "% of new balls are crates: click one for a higher ball, a star, a gem ball, a bomb or gems" : "None (every fifth order brings one)"; } },
     { key: "bomb", name: "Merge bombs", max: 5, base: 500, growth: 2.4,
       effect: function (l) { return l ? l + "% of new balls are bombs: click one to merge every pair on the board at once" : "None (crates sometimes hold one)"; } },
+    { key: "rainbow", name: "Rainbow balls", max: 6, base: 400, growth: 2.3,
+      effect: function (l) { return l ? fmtNum(l * 0.5) + "% of new balls are rainbow balls: one merges with any ball, your best too" : "None"; } },
+    { key: "egg", name: "Egg balls", max: 10, base: 100, growth: 1.8,
+      effect: function (l) { return l ? (l * 1.5) + "% of new balls are eggs: click one to hatch three balls" : "None"; } },
+    { key: "piggy", name: "Piggy balls", max: 5, base: 250, growth: 2.2,
+      effect: function (l) { return l ? l + "% of new balls are piggy balls: they fill up as you merge, up to " + abbr(piggyGems(PIGGY_FULL)) + " gems" : "None"; } },
+    { key: "boost", name: "Boost balls", max: 5, base: 350, growth: 2.3,
+      effect: function (l) { return l ? l + "% of new balls are boost balls: each one on the board makes Merge's gems worth +50% (up to " + BOOST_MAX + ")" : "None"; } },
     { key: "autobox", name: "Auto open", max: 5, base: 300, growth: 2.2,
-      effect: function (l) { return l ? "Crates and bombs open by themselves after " + autoBoxDelay(l) + (autoBoxDelay(l) === 1 ? " second" : " seconds") + " (a bomb once there's a pair to merge)" + (up("background") ? "" : ", while open") : "Off: click them yourself"; } },
+      effect: function (l) { return l ? "Crates, bombs and eggs open by themselves after " + autoBoxDelay(l) + (autoBoxDelay(l) === 1 ? " second" : " seconds") + " (a bomb once there's a pair to merge)" + (up("background") ? "" : ", while open") : "Off: click them yourself"; } },
     { key: "pay", name: "Merge pay", max: 20, base: 90, growth: 1.9,
       effect: function (l) { return l ? "Every merge pays " + fmtNum(l * 0.5) + " gems per level of the new ball" : "Off"; } },
     { key: "orderpay", name: "Order bonus", max: 20, base: 80, growth: 1.8,
@@ -139,6 +164,15 @@
   // A gem ball of tier t: three times the one below, plus Gem polish.
   function gemValue(t) { return Math.round(gemBallValue(up("gemball")) * (1 + 0.25 * up("polish")) * Math.pow(3, t - 1)); }
   // Seconds between auto merges: 10, 8, 6, 4, 2, then 1.7 down to 0.5 at level 10.
+  // A piggy ball's gems: a share of a gem ball for each step it has filled.
+  function piggyGems(v) { return Math.round(gemValue(1) * 0.6 * (piggyStep(v) + 1)); }
+  // Boost balls on the board: +50% each (up to three) on every gem Merge pays.
+  function boostMult() {
+    var n = 0;
+    state.board.forEach(function (v) { if (v === BOOST) n++; });
+    return 1 + 0.5 * Math.min(BOOST_MAX, n);
+  }
+  function boosted(g) { return Math.round(g * boostMult()); }
   // Seconds a crate or a bomb waits before Auto open opens it: 5 down to 1.
   function autoBoxDelay(l) { return Math.max(1, 6 - l); }
   function autoMergeEvery(l) { return l <= 5 ? Math.max(2, 12 - 2 * l) : Math.max(0.5, Math.round((2 - 0.3 * (l - 5)) * 10) / 10); }
@@ -166,15 +200,27 @@
   var GEM_DOTS = ["..###..", ".#####.", "#######", ".#####.", "..###..", "...#..."];
   var CRATE_DOTS = ["#######", "#.....#", "#.###.#", "#...#.#", "#..##.#", "#.....#", "#..#..#", "#######"];
   var BOMB_DOTS = ["......##", ".....#..", "..####..", ".######.", "########", "########", ".######.", "..####.."];
+  var BOOST_DOTS = ["...#...", "..###..", ".##.##.", "##...##", "...#...", "..###..", ".##.##.", "##...##"];
+  var RAINBOW_DOTS = ["..#####..", ".#######.", "###...###", "##.....##", "#.......#", "#.......#"];
+  var EGG_DOTS = ["..###..", ".#####.", ".#####.", "#######", "#######", "#######", ".#####.", "..###.."];
+  var PIGGY_DOTS = ["##...##", "#######", "#.###.#", "#######", "##.#.##", "#######", ".#####."];
   function specialImage(kind) {
-    var color = specialColor(kind), t = isBox(kind) ? 1 : tierOf(kind);
-    var rows = kind === CRATE ? CRATE_DOTS : kind === BOMB ? BOMB_DOTS : isStar(kind) ? STAR_DOTS : GEM_DOTS, w = rows[0].length, h = rows.length;
+    var color = specialColor(kind), t = isThing(kind) ? 1 : tierOf(kind);
+    var rows = kind === CRATE ? CRATE_DOTS : kind === BOMB ? BOMB_DOTS : kind === BOOST ? BOOST_DOTS : kind === RAINBOW ? RAINBOW_DOTS :
+      kind === EGG ? EGG_DOTS : isPiggy(kind) ? PIGGY_DOTS : isStar(kind) ? STAR_DOTS : GEM_DOTS, w = rows[0].length, h = rows.length;
     var cell = 34 / Math.max(w, h), ox = 32 - (w * cell) / 2, oy = 32 - (h * cell) / 2, dots = "";
     rows.forEach(function (row, y) {
       for (var x = 0; x < row.length; x++) {
-        if (row[x] === "#") dots += '<circle cx="' + (ox + (x + 0.5) * cell).toFixed(1) + '" cy="' + (oy + (y + 0.5) * cell).toFixed(1) + '" r="' + (cell * 0.42).toFixed(2) + '"/>';
+        // A rainbow ball's arcs: a colour a row.
+        if (row[x] === "#") dots += '<circle cx="' + (ox + (x + 0.5) * cell).toFixed(1) + '" cy="' + (oy + (y + 0.5) * cell).toFixed(1) + '" r="' + (cell * 0.42).toFixed(2) + '"' +
+          (kind === RAINBOW ? ' fill="' + RAINBOW_ROWS[y % RAINBOW_ROWS.length] + '"' : "") + "/>";
       }
     });
+    // A piggy ball's fill: a bar along the bottom.
+    if (isPiggy(kind)) {
+      var f = (piggyStep(kind) + 1) / PIGGY_STEPS;
+      dots += '<rect x="14" y="51" width="36" height="4" fill="none" stroke="' + color + '" stroke-width="1"/><rect x="14" y="51" width="' + (36 * f).toFixed(1) + '" height="4"/>';
+    }
     // Higher tiers: a second ring (2+), a glow (4+), and a pip for each tier along the top.
     var pips = "";
     for (var k = 1; k < t; k++) {
@@ -256,7 +302,8 @@
             "</div>" +
             '<p class="slope-merge-hint">Click Spawn ' + BASE_CLICKS + ' times for a ball. Drag a ball onto one of the same level ' +
               "(or click one, then the other) to merge them. Every new level is a secret skin, and your best ball makes gems worth more. " +
-              "Stars level up any ball but your best; click a gem ball for gems, a crate to open it, a bomb to merge every pair. Two matching stars or gem balls merge into a stronger one. " +
+              "Stars level up any ball but your best, and a rainbow ball merges with any ball. Click a gem ball or a piggy ball for gems, a crate to open it, a bomb to merge every pair, an egg to hatch it. " +
+              "Boost balls make Merge pay more while they're on the board. Two matching stars or gem balls merge into a stronger one. " +
               "Drop a ball on an order for gems, or in the bin to delete it.</p>" +
             '<p class="slope-shop-status slope-merge-status" role="status"></p>' +
           "</div>" +
@@ -397,18 +444,21 @@
     // ring (28+), a rainbow ring (45+), a burst of rays (70+).
     // Special balls glow from tier 3, and more the higher they go.
     var tier = level > 0 ? (level >= 70 ? 5 : level >= 45 ? 4 : level >= 28 ? 3 : level >= 16 ? 2 : level >= 8 ? 1 : 0)
-      : isBox(level) ? 1 : level < 0 ? Math.min(5, Math.max(0, tierOf(level) - 2)) : 0;
+      : isThing(level) ? 1 : level < 0 ? Math.min(5, Math.max(0, tierOf(level) - 2)) : 0;
     c.el.className = c.el.className.replace(/ ?is-tier-\d/g, "") + (tier ? " is-tier-" + tier : "");
     if (tier && level > 0) {
       var a = skin(level).trail || [0, 1, 0];
       c.el.style.setProperty("--ball-glow", "rgb(" + a.map(function (v) { return Math.round(v * 255); }).join(",") + ")");
     } else if (tier) c.el.style.setProperty("--ball-glow", specialColor(level));
     else c.el.style.removeProperty("--ball-glow");
-    if (isBox(level)) {
+    if (isThing(level)) {
       c.img.src = specialImage(level);
       c.img.hidden = false;
-      c.label.textContent = level === CRATE ? "?" : "!";
-      c.el.setAttribute("aria-label", level === CRATE ? "Mystery crate: click it to open it" : "Merge bomb: click it to merge every pair on the board");
+      c.label.textContent = level === CRATE ? "?" : level === BOMB ? "!" : level === BOOST ? "+50%" : level === RAINBOW ? "+1" :
+        level === EGG ? "x3" : "+" + abbr(boosted(piggyGems(level)));
+      c.el.setAttribute("aria-label", level === CRATE ? "Mystery crate: click it to open it" : level === BOMB ? "Merge bomb: click it to merge every pair on the board" :
+        level === BOOST ? "Boost ball: while it's on the board, gems from Merge are worth more" : level === RAINBOW ? "Rainbow ball: drop it on any ball (or any ball on it) to merge that ball up a level" :
+        level === EGG ? "Egg: click it to hatch three balls" : "Piggy ball, " + (piggyStep(level) + 1) + " of " + PIGGY_STEPS + " full: click it for " + fmt(boosted(piggyGems(level))) + " gems");
     } else if (level < 0) {
       c.img.src = specialImage(level);
       c.img.hidden = false;
@@ -465,6 +515,10 @@
       commit(false);
       say("Merged into a " + specialName(up1) + "! " + (isStar(up1) ? "It raises a ball " + starLevels(t + 1) + " levels." : "It's worth " + abbr(gemValue(t + 1)) + " gems."));
       pop(to);
+    } else if ((a === RAINBOW && b > 0) || (b === RAINBOW && a > 0)) {
+      // A rainbow ball merges with any ball, as its twin: your best too.
+      var twin = a === RAINBOW ? b : a;
+      made(from, to, twin + 1, "Rainbow! ", twin);
     } else if ((isStar(a) && b > 0) || (isStar(b) && a > 0)) {
       // A star raises any ball but your best (as far as your best, no further):
       // new bests come from merging.
@@ -502,6 +556,8 @@
       }
     }
     var pay = Math.round(level * up("pay") * 0.5);
+    // Every merge fills each piggy ball a step.
+    if (pair) state.board.forEach(function (v, k) { if (isPiggy(v) && v > PIGGY_FULL) state.board[k] = v - 1; });
     // A combo: merges by your hand (or a bomb) less than 3 s apart.
     if (pair && !autoActing) {
       var now = performance.now();
@@ -512,8 +568,9 @@
         how = "Combo x" + combo + "! " + how;
       } else if (combo > 2) how = "Combo x" + combo + "! " + how;
     }
+    pay = boosted(pay);
     if (level > state.best) {
-      var gems = NEW_BEST_GEMS * level;
+      var gems = boosted(NEW_BEST_GEMS * level);
       state.best = level;
       commit(true);
       profile.addGems(gems + pay);
@@ -529,7 +586,7 @@
 
   // A gem ball, clicked: its gems.
   function cashGem(i) {
-    var v = state.board[i], value = gemValue(tierOf(v));
+    var v = state.board[i], value = boosted(gemValue(tierOf(v)));
     state.board[i] = 0;
     commit(false);
     profile.addGems(value);
@@ -558,17 +615,21 @@
   // A mystery crate, clicked: what was inside takes its space (or gems).
   function openCrate(i) {
     var r = Math.random(), inside, text;
-    if (r < 0.4) {
+    if (r < 0.3) {
       inside = Math.max(spawnLevel(), Math.min(state.best - 1, spawnLevel() + 1 + Math.floor(Math.random() * 3)));
       text = "a level " + inside + " ball";
-    } else if (r < 0.6) { inside = Math.random() < 0.25 ? starOf(2) : STAR; text = "a " + specialName(inside); }
-    else if (r < 0.8) { inside = Math.random() < 0.25 ? gemOf(2) : GEM; text = "a " + specialName(inside); }
-    else if (r < 0.9) { inside = BOMB; text = "a merge bomb"; }
+    } else if (r < 0.45) { inside = Math.random() < 0.25 ? starOf(2) : STAR; text = "a " + specialName(inside); }
+    else if (r < 0.6) { inside = Math.random() < 0.25 ? gemOf(2) : GEM; text = "a " + specialName(inside); }
+    else if (r < 0.68) { inside = BOMB; text = "a merge bomb"; }
+    else if (r < 0.78) { inside = EGG; text = "an egg"; }
+    else if (r < 0.84) { inside = PIGGY; text = "a piggy ball"; }
+    else if (r < 0.9) { inside = BOOST; text = "a boost ball"; }
+    else if (r < 0.94) { inside = RAINBOW; text = "a rainbow ball"; }
     else inside = 0;
     state.board[i] = inside;
     commit(false);
     if (inside) say("Crate: " + text + "!");
-    else { var g = gemValue(2); profile.addGems(g); say("Crate: +" + abbr(g) + " gems!"); }
+    else { var g = boosted(gemValue(2)); profile.addGems(g); say("Crate: +" + abbr(g) + " gems!"); }
     render();
     pop(i);
   }
@@ -593,9 +654,35 @@
     render();
   }
 
+  // An egg, clicked: three new balls (where there is room), the first in its space.
+  function hatch(i) {
+    var spots = [i], empty = [];
+    state.board.forEach(function (v, k) { if (!v) empty.push(k); });
+    while (spots.length < 3 && empty.length) spots.push(empty.splice(Math.floor(Math.random() * empty.length), 1)[0]);
+    spots.forEach(function (k) { state.board[k] = spawnLevel(); });
+    commit(false);
+    say("The egg hatched " + spots.length + (spots.length === 1 ? " ball!" : " balls!"));
+    render();
+    spots.forEach(pop);
+  }
+
+  // A piggy ball, clicked: its gems, more the fuller it is.
+  function cashPiggy(i) {
+    var v = state.board[i], value = boosted(piggyGems(v));
+    state.board[i] = 0;
+    commit(false);
+    profile.addGems(value);
+    say("Piggy ball (" + (piggyStep(v) + 1) + "/" + PIGGY_STEPS + " full): +" + abbr(value) + " gems!");
+    render();
+  }
+
   function tap(i) {
     if (selected === -1) {
       if (isGem(state.board[i])) { cashGem(i); return; }
+      if (state.board[i] === EGG) { hatch(i); return; }
+      if (isPiggy(state.board[i])) { cashPiggy(i); return; }
+      if (state.board[i] === BOOST) say("A boost ball: while it's on the board, gems from Merge are worth x" + boostMult().toFixed(1) + ". Drag it to move it.");
+      if (state.board[i] === RAINBOW) say("A rainbow ball: drop it on any ball (your best too) to merge that ball up a level.");
       if (state.board[i] === CRATE) { openCrate(i); return; }
       if (state.board[i] === BOMB) { explode(i); return; }
       if (state.board[i]) { selected = i; renderBoard(); }
@@ -688,7 +775,7 @@
       renderBoard();
       return;
     }
-    var gems = orderGems(want);
+    var gems = boosted(orderGems(want));
     state.board[i] = 0;
     state.orders[k] = newOrderLevel();
     state.delivered += 1;
@@ -751,7 +838,10 @@
   // Sort: balls highest first, then stars, gem balls, crates and bombs.
   function sortBoard() {
     selected = -1;
-    function rank(v) { return v > 0 ? 1e7 + v : isStar(v) ? 3e6 + tierOf(v) : isGem(v) ? 2e6 + tierOf(v) : v === CRATE ? 2 : 1; }
+    var THINGS = [BOMB, CRATE, EGG, PIGGY, BOOST, RAINBOW];   // lowest first
+    function rank(v) {
+      return v > 0 ? 1e7 + v : isStar(v) ? 3e6 + tierOf(v) : isGem(v) ? 2e6 + tierOf(v) : isPiggy(v) ? 100 * THINGS.indexOf(PIGGY) + piggyStep(v) : 100 * THINGS.indexOf(v);
+    }
     var balls = state.board.filter(Boolean).sort(function (a, b) { return rank(b) - rank(a); });
     state.board = state.board.map(function (v, i) { return i < balls.length ? balls[i] : 0; });
     commit(false);
@@ -771,9 +861,13 @@
         say("The board is full: merge some balls to make room.");
       } else {
         // Sometimes a star or a gem ball (upgrades), and sometimes two balls.
-        var r = Math.random(), starChance = up("star") * 0.02, gemChance = up("gemball") * 0.03, crateChance = up("crate") * 0.02, bombChance = up("bomb") * 0.01;
-        var kind = !state.best ? spawnLevel() : r < starChance ? STAR : r < starChance + gemChance ? GEM :
-          r < starChance + gemChance + crateChance ? CRATE : r < starChance + gemChance + crateChance + bombChance ? BOMB : spawnLevel();
+        // Each special ball has its chance (its upgrade); the rest are plain balls.
+        var kind = spawnLevel();
+        if (state.best) {
+          var r = Math.random(), chances = [[STAR, up("star") * 0.02], [GEM, up("gemball") * 0.03], [CRATE, up("crate") * 0.02], [BOMB, up("bomb") * 0.01],
+            [RAINBOW, up("rainbow") * 0.005], [EGG, up("egg") * 0.015], [PIGGY, up("piggy") * 0.01], [BOOST, up("boost") * 0.01]];
+          for (var c = 0; c < chances.length; c++) { if (r < chances[c][1]) { kind = chances[c][0]; break; } r -= chances[c][1]; }
+        }
         // Star power: some stars come a tier (or two) higher.
         if (kind === STAR && Math.random() < up("starpow") * 0.06) kind = starOf(Math.random() < 0.25 ? 3 : 2);
         var i = empty.splice(Math.floor(Math.random() * empty.length), 1)[0];
@@ -795,6 +889,10 @@
         else if (kind === GEM) say("A gem ball! Click it for " + abbr(gemValue(1)) + " gems, or merge two for a bigger one.");
         else if (kind === CRATE) say("A mystery crate! Click it to see what's inside.");
         else if (kind === BOMB) say("A merge bomb! Click it to merge every pair on the board at once.");
+        else if (kind === RAINBOW) say("A rainbow ball! Drop it on any ball, your best too, to merge that ball up a level.");
+        else if (kind === EGG) say("An egg! Click it to hatch three balls.");
+        else if (kind === PIGGY) say("A piggy ball! It fills up as you merge: click it for its gems.");
+        else if (kind === BOOST) say("A boost ball! While it's on the board, gems from Merge are worth +50%.");
         else if (second >= 0) say("Double spawn: two balls!");
       }
     } else {
@@ -845,7 +943,7 @@
     for (var k = 0, times = 1 + up("multimerge"); k < times; k++) {
       var first = {}, pair = null;
       state.board.forEach(function (v, i) {
-        if (!v || isBox(v) || (v < 0 && (!up("autospecial") || tierOf(v) >= MAX_TIER))) return;
+        if (!v || isThing(v) || (v < 0 && (!up("autospecial") || tierOf(v) >= MAX_TIER))) return;
         if (first[v] === undefined) first[v] = i;
         else if (!pair || rank(v) < rank(pair.level)) pair = { from: i, to: first[v], level: v };
       });
@@ -874,12 +972,12 @@
       if (!isBox(v)) return;
       var key = i + ":" + v;   // a crate that opens into a bomb starts its wait again
       seen[key] = boxSeen[key] || now;
-      if (ready < 0 && now - seen[key] >= wait && (v === CRATE || pairs)) ready = i;
+      if (ready < 0 && now - seen[key] >= wait && (v !== BOMB || pairs)) ready = i;
     });
     boxSeen = seen;
     if (ready < 0) return;
     delete boxSeen[ready + ":" + state.board[ready]];
-    if (state.board[ready] === CRATE) openCrate(ready); else explode(ready);
+    if (state.board[ready] === CRATE) openCrate(ready); else if (state.board[ready] === EGG) hatch(ready); else explode(ready);
   }
 
   // Background merge: started with the page, and kept going after Merge closes.
@@ -956,7 +1054,8 @@
       ? "Best ball: <strong>" + skin(state.best).name + "</strong> (level " + state.best + ")  \u00b7  gems x" + boost.toFixed(2)
       : "No balls yet") +
       (p.prestige ? "  \u00b7  Prestige " + p.prestige : "") +
-      (state.delivered ? "  \u00b7  " + fmt(state.delivered) + (state.delivered === 1 ? " order" : " orders") + " delivered" : "");
+      (state.delivered ? "  \u00b7  " + fmt(state.delivered) + (state.delivered === 1 ? " order" : " orders") + " delivered" : "") +
+      (boostMult() > 1 ? "  \u00b7  boost x" + boostMult().toFixed(1) : "");
   }
 
   function render() {

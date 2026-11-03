@@ -211,7 +211,7 @@
   // space), clicks towards the next ball and its upgrades.
   // (A function, so it is ready before the profile is first read.)
   function mergeUpgrades() { return ["fast", "auto", "better", "lucky", "board", "charm", "double", "star", "gemball", "pay", "automerge",
-    "power", "starpow", "polish", "echo", "jackpot", "multimerge", "autospecial", "background", "orderpay", "ordermore", "crate", "bomb", "combo", "autobox"]; }
+    "power", "starpow", "polish", "echo", "jackpot", "multimerge", "autospecial", "background", "orderpay", "ordermore", "crate", "bomb", "combo", "autobox", "rainbow", "egg", "piggy", "boost"]; }
   function cleanMerge(m) {
     function n(v, max) { v = Math.floor(+v); return isFinite(v) && v >= 0 ? Math.min(v, max) : 0; }
     var out = { best: 0, board: [], clicks: 0, made: 0, up: {}, orders: [], delivered: 0, boxOff: false };
@@ -221,9 +221,11 @@
     out.made = n(m.made, 1e12);
     // A ball's level, 0 for an empty space, or a special ball: stars are odd
     // (-1 a star, -3 a Star II... up to -19), gem balls even (-2, -4... -20),
-    // a mystery crate -101 and a merge bomb -102.
+    // a mystery crate -101, a merge bomb -102, a boost ball -103, a rainbow
+    // ball -104, an egg -105, and a piggy ball -201 (empty) to -210 (full).
     out.board = Array.isArray(m.board) ? m.board.slice(0, 64).map(function (v) {
-      return (v < 0 && v >= -20 && v === Math.floor(v)) || v === -101 || v === -102 ? v : n(v, 999999);
+      var special = v === Math.floor(v) && ((v < 0 && v >= -20) || (v <= -101 && v >= -105) || (v <= -201 && v >= -210));
+      return special ? v : n(v, 999999);
     }) : [];
     mergeUpgrades().forEach(function (k) { out.up[k] = n(m.up && m.up[k], 1000); });
     // Orders: the level each order wants (up to five), and how many were delivered.
