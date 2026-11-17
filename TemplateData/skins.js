@@ -157,17 +157,31 @@
 
   // --- Secret skins ------------------------------------------------------------
   // Each ball level of the merge game (merge.js) is a skin of its own, without
-  // end: one of 14 patterns and two colours picked from the level (levels 1
-  // to 14 show each pattern once), and from level 10 a glowing rim, from 20
-  // sparkles, with more shine every level.
+  // end: one of 30 patterns and its colours picked from the level (levels 1
+  // to 30 show each pattern once; from 15 the pattern is tilted, a second
+  // one lies on top in a third colour, and the colours come from one of six
+  // palettes), and from level 10 a glowing rim, from 20 sparkles, with more
+  // shine every level.
 
-  var SECRET_KINDS = 14;
+  var SECRET_KINDS = 30;
   var SECRET_NAMES = ["Pebble", "Spark", "Ember", "Comet", "Pulse", "Nova", "Orbit", "Flare", "Quartz", "Prism",
     "Vortex", "Nebula", "Pulsar", "Quasar", "Zenith", "Aurora", "Eclipse", "Halo", "Titan", "Infinity",
     "Ripple", "Cinder", "Glacier", "Tempest", "Mirage", "Phantom", "Ion", "Solstice", "Meteor", "Cosmos",
     "Starling", "Monsoon", "Obsidian", "Radiant", "Sapphire", "Thunder", "Velvet", "Wisp", "Zephyr", "Omega"];
   var ROMAN = ["", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
   var secretCache = {};
+
+  // Three colours for a secret skin from level 15: complementary, neon on
+  // dark, pastel, analogous, metallic (gold or silver) or triadic.
+  function palette(scheme, h, r) {
+    function w(x) { return ((x % 1) + 1) % 1; }
+    if (scheme === 0) return [hsv(h, 0.85, 1), hsv(w(h + 0.5), 0.75, 0.85), hsv(w(h + 0.25), 0.9, 1)];
+    if (scheme === 1) return [hsv(h, 0.9, 1), hsv(w(h + 0.05), 0.7, 0.13), hsv(w(h + 0.5), 0.8, 1)];
+    if (scheme === 2) return [hsv(h, 0.5, 1), hsv(w(h + 0.33), 0.45, 0.7), hsv(w(h + 0.66), 0.6, 1)];
+    if (scheme === 3) return [hsv(h, 0.9, 1), hsv(w(h + 0.08), 0.9, 0.65), hsv(w(h - 0.08), 0.75, 1)];
+    if (scheme === 4) return [r < 0.5 ? hsv(0.12, 0.65, 1) : hsv(h, 0.08, 0.95), hsv(h, 0.3, 0.2), hsv(h, 0.85, 1)];
+    return [hsv(h, 0.85, 1), hsv(w(h + 1 / 3), 0.8, 0.8), hsv(w(h + 2 / 3), 0.85, 1)];
+  }
 
   function hsv(h, s, v) {
     var c = [5, 3, 1].map(function (n) { var k = (n + h * 6) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); });
@@ -181,7 +195,20 @@
     var round = Math.floor((level - 1) / SECRET_NAMES.length);
     var name = SECRET_NAMES[(level - 1) % SECRET_NAMES.length] + (round < ROMAN.length ? ROMAN[round] : " " + (round + 1));
     var hueA = (0.13 + level * 0.618034) % 1, hueB = (hueA + 0.25 + random() * 0.5) % 1;
-    var a = hsv(hueA, 0.85, 1), b = hsv(hueB, 0.7, level % 3 === 0 ? 0.15 : 0.95);
+    var a = hsv(hueA, 0.85, 1), b = hsv(hueB, 0.7, level % 3 === 0 ? 0.15 : 0.95), c = hsv((hueA + 0.5) % 1, 0.9, 1);
+    var kind = level <= SECRET_KINDS ? level - 1 : -1;   // levels 1 to 30 show each pattern once
+    var freq = 3 + Math.floor(random() * 6), speed = 0.3 + random() * 0.9 + Math.min(1.2, level * 0.015);
+    // From level 15: the pattern tilted, a second pattern on top in a third
+    // colour, and colours from one of six palettes, so no two levels look alike.
+    var layer = [-1, 0, 0, 0];
+    if (level > 14) {
+      if (kind < 0) kind = Math.floor(random() * SECRET_KINDS);
+      var k2 = Math.floor(random() * (SECRET_KINDS - 1));
+      if (k2 >= kind) k2++;
+      layer = [k2, 2 + Math.floor(random() * 6), 0.4 + random() * 0.35, random() * Math.PI];
+      var pal = palette(Math.floor(random() * 6), hueA, random());
+      a = pal[0]; b = pal[1]; c = pal[2];
+    }
     var skin = {
       id: "secret-" + level,
       name: name,
@@ -193,9 +220,12 @@
       secret: {
         a: a,
         b: b,
-        p: [level <= SECRET_KINDS ? level - 1 : Math.floor(random() * SECRET_KINDS), 3 + Math.floor(random() * 6), Math.min(1, level / 25), level >= 10 ? Math.min(1, (level - 9) / 20) : 0],
+        c: c,
+        p: [kind, freq, Math.min(1, level / 25), level >= 10 ? Math.min(1, (level - 9) / 20) : 0],
         // sparkles from 20; pattern speed (a little quicker each level); the level; an accent hue
-        q: [level >= 20 ? 1 : 0, 0.3 + random() * 0.9 + Math.min(1.2, level * 0.015), level, (hueA + 0.5) % 1]
+        q: [level >= 20 ? 1 : 0, speed, level, (hueA + 0.5) % 1],
+        // the second pattern (-1: none), its frequency and strength, and the tilt
+        r: layer
       }
     };
     secretCache[level] = skin;
@@ -236,8 +266,8 @@
     "uniform int uSplit;",
     "uniform vec3 uTint;",
     "uniform int uBakeTint;",
-    "uniform vec3 uSecretA, uSecretB;",
-    "uniform vec4 uSecretP, uSecretQ;",
+    "uniform vec3 uSecretA, uSecretB, uSecretC;",
+    "uniform vec4 uSecretP, uSecretQ, uSecretR;",
     "uniform float uEvo;",            // the ball's level (profile.js)
     "uniform vec3 uEvoColor;",
     "out vec4 outColor;",
@@ -281,6 +311,75 @@
     "    if (d > b1) { b2 = b1; b1 = d; nearest = float(i); } else if (d > b2) { b2 = d; }",
     "  }",
     "  return vec3(b1, b2, nearest);",
+    "}",
+    "",
+    // Secret skins' patterns (uPattern 49): 0 to 29, each a value from 0 to 1
+    // over the ball at point p (frequency f, time t).
+    "vec3 voro(vec3 q) {",
+    "  vec3 i0 = floor(q); float d1 = 9.0, d2 = 9.0, h = 0.0;",
+    "  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {",
+    "    vec3 cell = i0 + vec3(float(x), float(y), float(z));",
+    "    float d = length(q - cell - vec3(hash3(cell), hash3(cell + 17.0), hash3(cell + 31.0)));",
+    "    if (d < d1) { d2 = d1; d1 = d; h = hash3(cell + 5.0); } else if (d < d2) d2 = d;",
+    "  }",
+    "  return vec3(d1, d2, h);",
+    "}",
+    "float hexEdge(vec2 u) {",
+    "  vec2 s = vec2(1.0, 1.7320508);",
+    "  vec4 c = floor(vec4(u, u - vec2(0.5, 1.0)) / s.xyxy) + 0.5;",
+    "  vec4 h = vec4(u - c.xy * s, u - (c.zw + 0.5) * s);",
+    "  vec2 g = abs(dot(h.xy, h.xy) < dot(h.zw, h.zw) ? h.xy : h.zw);",
+    "  return max(dot(g, normalize(s)), g.x);",
+    "}",
+    "float secretPattern(int kind, float f, vec3 p, float t) {",
+    "  float lat = asin(clamp(p.y, -1.0, 1.0)), lon = atan(p.z, p.x);",
+    "  vec2 u = vec2(lon, lat) / 3.14159 * f;", // a grid over the ball, whole across the seam
+    "  if (kind == 0) return fill(sin(lat * f * 2.0 + t));", // bands
+    "  if (kind == 1) return fill(sin(lon * f + t) * sin(lat * f));", // checks on a globe
+    "  if (kind == 2) return fill(sin(lon * 2.0 + lat * f * 1.5 + t));", // a spiral
+    "  if (kind == 3) return fill(sin(acos(clamp(p.z, -1.0, 1.0)) * f * 2.0 - t * 2.0));", // rings from the front
+    "  if (kind == 4) return smoothstep(0.42, 0.58, fbm(p * f * 0.6 + vec3(t * 0.2)));", // clouds
+    "  if (kind == 5) return fill(sin(p.x * f + sin(p.y * f * 0.7 + t) * 2.0));", // waves
+    "  if (kind == 6) { vec3 g = fract(p * f * 0.55 + vec3(0.0, t * 0.1, 0.0)) - 0.5; return 1.0 - smoothstep(0.24, 0.3, length(g)); }", // polka dots
+    "  if (kind == 7) { vec3 g = floor(p * f * 0.6); return mod(g.x + g.y + g.z, 2.0); }", // checker
+    "  if (kind == 8) return fill(sin(atan(p.y, p.x) * floor(f + 2.0) + t));", // rays from the front
+    "  if (kind == 9) { vec3 v = voro(p * f * 0.5); return 1.0 - smoothstep(0.04, 0.12, v.y - v.x); }", // cracked into cells
+    "  if (kind == 10) return smoothstep(-0.15, 0.15, sin(p.x * f + t) + sin(p.y * f * 1.3 - t) + sin(p.z * f * 0.7 + t * 0.5));", // lava-lamp blobs
+    "  if (kind == 11) return 1.0 - smoothstep(0.06, 0.12, min(abs(fract(lat * f / 3.14159) - 0.5), abs(fract(lon * f / 6.28318) - 0.5)));", // a glowing grid
+    "  if (kind == 12) return fill(sin(lat * f * 2.0 + abs(fract(lon * f / 3.14159) - 0.5) * 8.0 + t));", // zigzags
+    "  if (kind == 13) return fill(sin(atan(p.y, p.x) * 2.0 + length(p.xy) * f * 2.0 - t * 2.0));", // a galaxy swirl
+    "  if (kind == 14) return smoothstep(0.38, 0.46, hexEdge(vec2(u.x * 1.5, u.y * 2.6)));", // honeycomb
+    "  if (kind == 15) {", // fish scales
+    "    vec2 sc = vec2(u.x * 2.0, u.y * 3.0); sc.x += mod(floor(sc.y), 2.0) * 0.5;",
+    "    vec2 g = vec2(fract(sc.x) - 0.5, fract(sc.y)); float d = length(g);",
+    "    return clamp(line(d - 0.5, 0.06) + (1.0 - smoothstep(0.45, 0.5, d)) * (0.25 + 0.5 * g.y), 0.0, 1.0);",
+    "  }",
+    "  if (kind == 16) { vec2 g = abs(fract(vec2(u.x * 2.0, u.y * 3.0)) - 0.5); return fill(0.5 - g.x - g.y); }", // argyle diamonds
+    "  if (kind == 17) {", // tartan
+    "    vec2 g = fract(vec2(u.x * 2.0, u.y * 2.5));",
+    "    float sx = step(g.x, 0.3) + line(abs(g.x - 0.66), 0.03), sy = step(g.y, 0.3) + line(abs(g.y - 0.66), 0.03);",
+    "    return clamp((sx + sy) * 0.5, 0.0, 1.0);",
+    "  }",
+    "  if (kind == 18) return smoothstep(0.25, 0.75, 0.5 + 0.5 * sin(p.x * f + p.y * f * 0.6 + fbm(p * 2.5 + vec3(t * 0.1)) * 7.0));", // marble
+    "  if (kind == 19) { float c1 = fbm(p * f * 0.45 + vec3(3.1)); return 0.5 * smoothstep(0.40, 0.42, c1) + 0.5 * smoothstep(0.53, 0.55, c1); }", // camouflage
+    "  if (kind == 20) {", // star-shaped spots
+    "    vec3 g = fract(p * f * 0.5 + vec3(0.0, t * 0.08, 0.0)) - 0.5;",
+    "    float e = 0.22 + 0.09 * cos(atan(g.y, g.x) * 5.0);",
+    "    return (1.0 - smoothstep(e - 0.03, e, length(g.xy))) * (1.0 - smoothstep(0.3, 0.42, abs(g.z)));",
+    "  }",
+    "  if (kind == 21) { vec3 v = voro(p * f * 0.6); return clamp(line(v.x - 0.3, 0.07) + (1.0 - smoothstep(0.1, 0.14, v.x)) * 0.7, 0.0, 1.0); }", // leopard
+    "  if (kind == 22) return fill(sin(lat * f * 2.5 + fbm(p * 2.5) * 6.0 + t * 0.2));", // zebra
+    "  if (kind == 23) {", // bricks
+    "    vec2 sc = vec2(u.x * 2.0, u.y * 4.0); sc.x += mod(floor(sc.y), 2.0) * 0.5;",
+    "    vec2 g = fract(sc);",
+    "    return 1.0 - max(line(min(g.y, 1.0 - g.y), 0.06), line(min(g.x, 1.0 - g.x), 0.04));",
+    "  }",
+    "  if (kind == 24) return fill(abs(cos(atan(p.y, p.x) * (floor(f) + 2.0) * 0.5 + t * 0.2)) - length(p.xy) * 1.1);", // a flower
+    "  if (kind == 25) { float s1 = 0.5 * sin(lon * (floor(f * 0.5) + 1.0) + t); return max(line(abs(lat - s1), 0.13), line(abs(lat + s1), 0.13)); }", // a double helix
+    "  if (kind == 26) { vec3 v = voro(p * f * 0.5); return step(0.5, v.z) * (1.0 - line(v.y - v.x, 0.04)); }", // patchwork cells
+    "  if (kind == 27) return 1.0 - line(abs(sin(lon * f * 0.5 + fbm(p * 3.0) * 4.0)), 0.3);", // tiger stripes
+    "  if (kind == 28) { vec2 sc = u * 2.0; return max(line(abs(fract(sc.x + sc.y) - 0.5), 0.08), line(abs(fract(sc.x - sc.y) - 0.5), 0.08)); }", // crosshatch
+    "  return fill(sin(length(p.xy + (vec2(fbm(p * 2.0), fbm(p * 2.0 + 7.0)) - 0.5) * 0.6) * f * 6.0 - t));", // 29: wood rings
     "}",
     "",
     "void main() {",
@@ -580,62 +679,53 @@
     "    float flick = 0.85 + 0.15 * sin(uTime * 23.0) * sin(uTime * 7.0);",
     "    col = vec3(0.2, 0.9, 1.0) * (0.15 + 0.85 * pow(1.0 - facing, 2.0)) * scan * flick;",
     "    col += vec3(0.6, 1.0, 1.0) * line(meridians(p), 0.015) * 0.5;",
-    "  } else if (uPattern == 49) {", // Secret skins from the merge game: one shape, two colours, more shine each level
+    "  } else if (uPattern == 49) {", // Secret skins from the merge game: a pattern in two colours, from level 15 tilted and with a second one in a third colour; more shine and extras each level
     "    int kind = int(uSecretP.x + 0.5);",
-    "    float f = uSecretP.y, t = uTime * uSecretQ.y, m;",
-    "    if (kind == 0) m = fill(sin(lat * f * 2.0 + t));",
-    "    else if (kind == 1) m = fill(sin(lon * f + t) * sin(lat * f));",
-    "    else if (kind == 2) m = fill(sin(lon * 2.0 + lat * f * 1.5 + t));",
-    "    else if (kind == 3) m = fill(sin(acos(clamp(p.z, -1.0, 1.0)) * f * 2.0 - t * 2.0));",
-    "    else if (kind == 4) m = smoothstep(0.42, 0.58, fbm(p * f * 0.6 + vec3(t * 0.2)));",
-    "    else if (kind == 5) m = fill(sin(p.x * f + sin(p.y * f * 0.7 + t) * 2.0));",
-    "    else if (kind == 6) { vec3 g = fract(p * f * 0.55 + vec3(0.0, t * 0.1, 0.0)) - 0.5; m = 1.0 - smoothstep(0.24, 0.3, length(g)); }", // polka dots
-    "    else if (kind == 7) { vec3 g = floor(p * f * 0.6); m = mod(g.x + g.y + g.z, 2.0); }", // checker
-    "    else if (kind == 8) m = fill(sin(atan(p.y, p.x) * floor(f + 2.0) + t));", // rays from the front
-    "    else if (kind == 9) {", // cracked into cells
-    "      vec3 q = p * f * 0.5, i0 = floor(q); float d1 = 9.0, d2 = 9.0;",
-    "      for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {",
-    "        vec3 cell = i0 + vec3(float(x), float(y), float(z));",
-    "        float d = length(q - cell - vec3(hash3(cell), hash3(cell + 17.0), hash3(cell + 31.0)));",
-    "        if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;",
-    "      }",
-    "      m = 1.0 - smoothstep(0.04, 0.12, d2 - d1);",
-    "    }",
-    "    else if (kind == 10) m = smoothstep(-0.15, 0.15, sin(p.x * f + t) + sin(p.y * f * 1.3 - t) + sin(p.z * f * 0.7 + t * 0.5));", // lava-lamp blobs
-    "    else if (kind == 11) m = 1.0 - smoothstep(0.06, 0.12, min(abs(fract(lat * f / 3.14159) - 0.5), abs(fract(lon * f / 6.28318) - 0.5)));", // a glowing grid
-    "    else if (kind == 12) m = fill(sin(lat * f * 2.0 + abs(fract(lon * f / 3.14159) - 0.5) * 8.0 + t));", // zigzags
-    "    else m = fill(sin(atan(p.y, p.x) * 2.0 + length(p.xy) * f * 2.0 - t * 2.0));", // a galaxy swirl
+    "    float f = uSecretP.y, t = uTime * uSecretQ.y;",
+    "    float ca = cos(uSecretR.w), sa = sin(uSecretR.w);",
+    "    bool layered = uSecretR.x > -0.5;",
+    "    vec3 p1 = layered ? vec3(p.x, ca * p.y - sa * p.z, sa * p.y + ca * p.z) : p;",
+    "    float m = secretPattern(kind, f, p1, t);",
     "    vec3 c = mix(uSecretB, uSecretA, m);",
+    "    if (layered) {",
+    "      vec3 p2 = vec3(ca * p.x - sa * p.y, sa * p.x + ca * p.y, p.z);",
+    "      float m2 = secretPattern(int(uSecretR.x + 0.5), uSecretR.y, p2, t * 0.7) * uSecretR.z;",
+    "      c = mix(c, uSecretC, m2);",
+    "      m = max(m, m2);",
+    "    }",
     "    float spec = pow(max(dot(reflect(-v, n), uLight), 0.0), 20.0 + 80.0 * uSecretP.z);",
-    "    col = c * shade + vec3(spec) * (0.15 + 0.85 * uSecretP.z);",
-    "    col += uSecretA * uSecretP.w * (0.6 + 0.4 * sin(uTime * 3.0)) * pow(1.0 - facing, 2.0);",
+    "    col = c * shade + vec3(spec) * (0.15 + 0.6 * uSecretP.z);",
+    "    col += uSecretA * uSecretP.w * (0.6 + 0.4 * sin(uTime * 3.0)) * pow(1.0 - facing, 2.0) * 0.8;",
     "    float L = uSecretQ.z;",
-    "    vec3 accent = hue(uSecretQ.w);",
+    "    vec3 accent = uSecretC;",
     "    if (uSecretQ.x > 0.5) {", // 20+: sparkles, more of them each level
     "      vec3 q = p * 22.0;",
     "      float h = hash3(floor(q));",
     "      col += vec3(step(0.93 - min(0.06, (L - 20.0) * 0.002), h) * (1.0 - smoothstep(0.0, 0.3, length(fract(q) - 0.5)))) * (0.5 + 0.5 * sin(uTime * 4.0 + h * 50.0));",
     "    }",
-    // Every few levels the ball gains something new on top.
-    "    if (L >= 5.0) col += accent * clamp(1.0 - abs(m - 0.5) * 2.0, 0.0, 1.0) * 0.9;", // 5+: bright seams where the colours meet
+    // Every few levels the ball gains something new on top, in its own colours.
+    "    if (L >= 5.0) col += accent * clamp(1.0 - abs(m - 0.5) * 2.0, 0.0, 1.0) * 0.55;", // 5+: bright seams where the colours meet
     "    if (L >= 14.0) {", // 14+: glowing bands orbit the ball (two from 22)
     "      float a1 = uTime * 0.9;",
     "      float b1 = line(abs(dot(p, normalize(vec3(sin(a1), 0.6, cos(a1))))), 0.03);",
     "      float b2 = L >= 22.0 ? line(abs(dot(p, normalize(vec3(cos(a1 * 1.3), sin(a1 * 0.7), 0.5)))), 0.025) : 0.0;",
-    "      col += accent * (b1 + b2) * 0.9;",
+    "      col += accent * (b1 + b2) * 0.8;",
     "    }",
-    "    if (L >= 25.0) col = mix(col, hue(facing * 0.8 + uTime * 0.1 + uSecretQ.w) * max(col.r, max(col.g, col.b)), 0.45);", // 25+: iridescent
+    "    if (L >= 25.0) {", // 25+: a sheen sliding between its colours
+    "      vec3 sheen = mix(uSecretA, uSecretC, 0.5 + 0.5 * sin(facing * 6.0 + uTime * 0.8));",
+    "      col = mix(col, sheen * max(col.r, max(col.g, col.b)), 0.2);",
+    "    }",
     "    if (L >= 30.0) {", // 30+: stars deep in the darker colour
     "      vec3 sq = p * 40.0; float sh = hash3(floor(sq));",
     "      col += (1.0 - m) * vec3(step(0.95, sh) * (1.0 - smoothstep(0.0, 0.25, length(fract(sq) - 0.5)))) * (0.6 + 0.4 * sin(uTime * 3.0 + sh * 40.0));",
     "    }",
     "    if (L >= 40.0) {", // 40+: lightning crawling over it
     "      float k = fbm(p * 3.0 + vec3(0.0, uTime * 0.6, 0.0));",
-    "      col += mix(accent, vec3(1.0), 0.5) * (1.0 - smoothstep(0.0, 0.035, abs(k - 0.5))) * (0.6 + 0.4 * sin(uTime * 9.0 + k * 20.0));",
+    "      col += accent * (1.0 - smoothstep(0.0, 0.035, abs(k - 0.5))) * (0.6 + 0.4 * sin(uTime * 9.0 + k * 20.0)) * 0.7;",
     "    }",
-    "    if (L >= 50.0) col += hue(lon / 6.2832 + uTime * 0.3) * pow(1.0 - facing, 3.0) * 1.2;", // 50+: a rainbow rim
-    "    if (L >= 75.0) col += vec3(1.0, 0.55, 0.15) * smoothstep(0.55, 0.85, fbm(p * 4.0 + vec3(uTime * 0.8))) * pow(1.0 - facing, 1.5);", // 75+: a burning corona
-    "    if (L >= 100.0) col += accent * line(fract(acos(clamp(p.z, -1.0, 1.0)) * 2.0 - uTime * 0.8) - 0.5, 0.06) * 0.7;", // 100+: rings ripple out from the front
+    "    if (L >= 50.0) col += mix(uSecretA, uSecretC, 0.5 + 0.5 * sin(lon * 2.0 + uTime)) * pow(1.0 - facing, 3.0) * 0.8;", // 50+: a rim in its colours
+    "    if (L >= 75.0) col += mix(uSecretA, vec3(1.0, 0.55, 0.15), 0.35) * smoothstep(0.55, 0.85, fbm(p * 4.0 + vec3(uTime * 0.8))) * pow(1.0 - facing, 1.5) * 0.7;", // 75+: a burning corona
+    "    if (L >= 100.0) col += accent * line(fract(acos(clamp(p.z, -1.0, 1.0)) * 2.0 - uTime * 0.8) - 0.5, 0.06) * 0.5;", // 100+: rings ripple out from the front
     "  } else if (uPattern == 50) {", // Trey Tailer Crew Tractor: green paint and a yellow stripe round the middle, tyre treads at the poles
     "    float band = abs(lat);",
     "    if (band < 0.62) {",
@@ -710,7 +800,7 @@
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     var u = {};
     ["uViewProjection", "uObjectToWorld", "uPattern", "uCamera", "uLight", "uTime", "uPoints", "uCount", "uSplit", "uTint", "uBakeTint", "uEvo", "uEvoColor",
-     "uSecretA", "uSecretB", "uSecretP", "uSecretQ"].forEach(function (name) {
+     "uSecretA", "uSecretB", "uSecretC", "uSecretP", "uSecretQ", "uSecretR"].forEach(function (name) {
       u[name] = gl.getUniformLocation(program, name);
     });
     this.gl = gl;
@@ -732,8 +822,10 @@
       if (skin.secret) {
         gl.uniform3fv(u.uSecretA, skin.secret.a);
         gl.uniform3fv(u.uSecretB, skin.secret.b);
+        gl.uniform3fv(u.uSecretC, skin.secret.c);
         gl.uniform4fv(u.uSecretP, skin.secret.p);
         gl.uniform4fv(u.uSecretQ, skin.secret.q);
+        gl.uniform4fv(u.uSecretR, skin.secret.r);
       }
     };
   }

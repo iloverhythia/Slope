@@ -12,6 +12,9 @@
  *   Springs     on some platforms: a bounce nearly twice as high
  *   Rockets     fly straight up for a couple of seconds, through everything
  *   Shields     take one mine hit for you
+ *   Clouds      soft platforms (from 300 m) that bounce the ball a third higher
+ *   Magnets     pull nearby gems to the ball for 8 seconds
+ *   x2 gems     gems are worth double for 10 seconds
  *   Gems        on platforms and in trails: every rarity (gems.js), worth
  *               what they are worth in the game
  *
@@ -41,7 +44,8 @@
   var W = 360;                      // the play column, in world units (y goes up)
   var R = 12;                       // the ball
   var UNIT = 20;                    // world units in a metre
-  var G = 1500, JUMP = 900, SPRING = 1.75, MAX_FALL = 1500;
+  var G = 1500, JUMP = 900, SPRING = 1.75, CLOUD = 1.16, MAX_FALL = 1500;   // a cloud: a third higher (1.16 squared)
+  var MAGNET_TIME = 8, MAGNET_REACH = 150, DOUBLE_TIME = 10;
   var MAX_VX = 360, ACCEL = 2800, DRAG = 7;
   var ROCKET_SPEED = 1150, ROCKET_TIME = 2.2;
   var REACH = JUMP * JUMP / (2 * G);   // 270: as high as a bounce goes
@@ -63,7 +67,7 @@
 
   function newWorld(seed) {
     var w = { rand: rng(seed), plats: [], items: [], mines: [], lastX: W / 2, lastY: 0, lastAmp: 0,
-      nextRocket: 150 * UNIT, nextShield: 220 * UNIT };
+      nextRocket: 150 * UNIT, nextShield: 220 * UNIT, nextMagnet: 80 * UNIT, nextDouble: 120 * UNIT };
     w.plats.push({ x: W / 2, y: 0, w: W, kind: "ground" });
     return w;
   }
@@ -82,7 +86,8 @@
       var y0 = w.lastY, x0 = w.lastX, d = difficulty(y0), m = metresAt(y0);
       // The sure way up is plain and moving platforms only: nothing on it
       // breaks, so from wherever the ball lands the next one is in reach.
-      var kind = m > 60 && r() < 0.06 + 0.3 * d ? "moving" : "plain";
+      var kroll = r();
+      var kind = m > 60 && kroll < 0.06 + 0.3 * d ? "moving" : m > 300 && kroll > 0.9 - 0.06 * d ? "cloud" : "plain";   // clouds never break: they may lie on the way up
       var maxGap = REACH * (kind === "moving" ? 0.72 : 0.8);
       var gap = Math.min(maxGap, 62 + 130 * d + r() * (28 + 40 * d));
       var width = 92 - 34 * d + r() * 12;
@@ -133,6 +138,8 @@
       }
       if (y >= w.nextRocket) { w.items.push({ kind: "rocket", x: x, y: y + 52, plat: p, dx: 0 }); w.nextRocket += (330 + 300 * r()) * UNIT; }
       else if (y >= w.nextShield) { w.items.push({ kind: "shield", x: x, y: y + 52, plat: p, dx: 0 }); w.nextShield += (260 + 260 * r()) * UNIT; }
+      else if (y >= w.nextMagnet) { w.items.push({ kind: "magnet", x: x, y: y + 52, plat: p, dx: 0 }); w.nextMagnet += (180 + 140 * r()) * UNIT; }
+      else if (y >= w.nextDouble) { w.items.push({ kind: "double", x: x, y: y + 52, plat: p, dx: 0 }); w.nextDouble += (200 + 160 * r()) * UNIT; }
       w.lastY = y;
       w.lastX = kind === "moving" ? p.cx : x;
       w.lastAmp = kind === "moving" ? p.amp : 0;
@@ -156,7 +163,7 @@
     w.mines = w.mines.filter(function (m) { return m.y > below && !m.gone; });
   }
 
-  function itemPos(it, t) { return it.plat && it.plat.kind === "moving" ? platX(it.plat, t) + it.dx : it.x; }
+  function itemPos(it, t) { return !it.free && it.plat && it.plat.kind === "moving" ? platX(it.plat, t) + it.dx : it.x; }
 
   // --- A run ----------------------------------------------------------------------------
 
@@ -165,7 +172,7 @@
   function newRun(seed) {
     var w = newWorld(seed);
     var rn = { world: w, t: 0, ball: { x: W / 2, y: R, vx: 0, vy: JUMP, rot: 0, squash: 0 }, camY: -60, top: 0,
-      bounces: 0, rocket: 0, shield: false, safe: 0, dead: null, events: [], seed: seed };
+      bounces: 0, rocket: 0, shield: false, safe: 0, magnet: 0, double: 0, dead: null, events: [], seed: seed };
     extend(w, VIEW * 2);
     return rn;
   }
@@ -197,25 +204,35 @@
         if (p.kind === "trap") { p.broken = rn.t; rn.events.push({ kind: "trap", x: px, y: p.y }); continue; }
         b.y = p.y + R;
         var spring = p.spring !== undefined && Math.abs(wrapDx(b.x, px + p.spring)) < 18;
-        b.vy = JUMP * (spring ? SPRING : 1);
+        b.vy = JUMP * (spring ? SPRING : p.kind === "cloud" ? CLOUD : 1);
         b.squash = 1;
         if (spring) p.sprung = rn.t;
         if (p.kind === "crumble") p.broken = rn.t;
         rn.bounces++;
-        rn.events.push({ kind: spring ? "spring" : "bounce", x: b.x, y: p.y });
+        rn.events.push({ kind: spring ? "spring" : "bounce", x: b.x, y: p.y, cloud: p.kind === "cloud" });
         break;
       }
     }
 
-    // Items and mines.
+    // Items and mines. A magnet pulls gems in.
+    if (rn.magnet > 0) rn.magnet -= dt;
+    if (rn.double > 0) rn.double -= dt;
     w.items.forEach(function (it) {
       if (it.gone) return;
       var ix = itemPos(it, rn.t), dx = wrapDx(b.x, ix), dy = b.y - it.y;
+      if (rn.magnet > 0 && it.kind === "gem" && dx * dx + dy * dy < MAGNET_REACH * MAGNET_REACH) {
+        var dist = Math.sqrt(dx * dx + dy * dy) || 1, pull = Math.min(dist, 520 * dt);
+        it.free = true;
+        it.x = ((ix + dx / dist * pull) % W + W) % W; it.y += dy / dist * pull;
+        ix = it.x; dx = wrapDx(b.x, ix); dy = b.y - it.y;
+      }
       if (dx * dx + dy * dy > (R + 14) * (R + 14)) return;
       it.gone = true;
       if (it.kind === "rocket") { rn.rocket = ROCKET_TIME; rn.events.push({ kind: "rocket", x: ix, y: it.y }); }
       else if (it.kind === "shield") { rn.shield = true; rn.events.push({ kind: "shield", x: ix, y: it.y }); }
-      else rn.events.push({ kind: "gem", item: it, x: ix, y: it.y });
+      else if (it.kind === "magnet") { rn.magnet = MAGNET_TIME; rn.events.push({ kind: "magnet", x: ix, y: it.y }); }
+      else if (it.kind === "double") { rn.double = DOUBLE_TIME; rn.events.push({ kind: "double", x: ix, y: it.y }); }
+      else rn.events.push({ kind: "gem", item: it, x: ix, y: it.y, double: rn.double > 0 });
     });
     w.mines.forEach(function (mn) {
       if (mn.gone) return;
@@ -289,7 +306,7 @@
     run.events.forEach(function (e) {
       if (e.kind === "gem") {
         var r = e.item.rarity >= 0 ? e.item.rarity : 0;
-        var added = profile.addGems(api ? api.worth(r) : 1);
+        var added = profile.addGems((api ? api.worth(r) : 1) * (e.double ? 2 : 1));
         if (api && api.count) api.count(tally, r, added); else { tally.gems += added; tally.pickups++; }
         if (api && r >= 2) api.found(r, added);
         burst(e.x, e.y, gemColour(r), 8);
@@ -297,6 +314,8 @@
       else if (e.kind === "spring") { burst(e.x, e.y, GOLD, 12); floatText("Spring!", e.x, e.y + 40, GOLD); }
       else if (e.kind === "rocket") floatText("Rocket!", e.x, e.y + 30, GOLD);
       else if (e.kind === "shield") floatText("Shield!", e.x, e.y + 30, SHIELD);
+      else if (e.kind === "magnet") floatText("Magnet!", e.x, e.y + 30, "#ff5b5b");
+      else if (e.kind === "double") floatText("x2 gems!", e.x, e.y + 30, GOLD);
       else if (e.kind === "pop") burst(e.x, e.y, RED, 14);
       else if (e.kind === "trap") burst(e.x, e.y, RED, 8);
     });
@@ -537,6 +556,15 @@
         x.globalAlpha = 1;
         return;
       }
+      if (p.kind === "cloud") {   // a soft cloud: puffs in white
+        x.fillStyle = "rgba(255,255,255,0.12)"; x.strokeStyle = "#e8f4ff"; x.lineWidth = 2 * s;
+        x.shadowColor = "#e8f4ff"; x.shadowBlur = 8 * s;
+        x.beginPath();
+        for (var pf = -2; pf <= 2; pf++) x.arc(sx(px) + pf * hw * 0.42, py - (pf % 2 ? 2 : 4) * s, hh * (pf % 2 ? 1.5 : 1.9), Math.PI, 0);
+        x.lineTo(sx(px) + hw, py + hh); x.lineTo(sx(px) - hw, py + hh); x.closePath();
+        x.fill(); x.stroke(); x.shadowBlur = 0;
+        return;
+      }
       var trap = p.kind === "trap";
       x.fillStyle = trap ? "rgba(255,26,16,0.15)" : "#000";
       x.strokeStyle = trap ? RED : col;
@@ -587,6 +615,18 @@
           x.beginPath(); x.moveTo(0, -14 * s); x.lineTo(6 * s, -4 * s); x.lineTo(6 * s, 8 * s); x.lineTo(-6 * s, 8 * s); x.lineTo(-6 * s, -4 * s); x.closePath(); x.fill();
           x.beginPath(); x.moveTo(-6 * s, 2 * s); x.lineTo(-11 * s, 11 * s); x.lineTo(-6 * s, 8 * s); x.moveTo(6 * s, 2 * s); x.lineTo(11 * s, 11 * s); x.lineTo(6 * s, 8 * s); x.stroke();
           x.restore(); x.shadowBlur = 0;
+        } else if (it.kind === "magnet") {   // a horseshoe magnet
+          x.save(); x.translate(cx, iy); x.lineWidth = 5 * s; x.lineCap = "butt";
+          x.shadowColor = "#ff5b5b"; x.shadowBlur = 10 * s;
+          x.strokeStyle = "#ff5b5b"; x.beginPath(); x.arc(0, -2 * s, 8 * s, Math.PI, 0); x.stroke();
+          x.beginPath(); x.moveTo(-8 * s, -2 * s); x.lineTo(-8 * s, 6 * s); x.moveTo(8 * s, -2 * s); x.lineTo(8 * s, 6 * s); x.stroke();
+          x.strokeStyle = "#dddddd"; x.beginPath(); x.moveTo(-8 * s, 6 * s); x.lineTo(-8 * s, 11 * s); x.moveTo(8 * s, 6 * s); x.lineTo(8 * s, 11 * s); x.stroke();
+          x.restore(); x.shadowBlur = 0;
+        } else if (it.kind === "double") {   // x2 in a gold ring
+          x.strokeStyle = GOLD; x.lineWidth = 2.5 * s; x.shadowColor = GOLD; x.shadowBlur = 10 * s;
+          x.beginPath(); x.arc(cx, iy, 12 * s, 0, Math.PI * 2); x.stroke();
+          x.shadowBlur = 0; x.fillStyle = GOLD; x.textAlign = "center"; x.font = Math.round(12 * s) + "px " + font;
+          x.fillText("x2", cx, iy + 4 * s);
         } else {
           x.strokeStyle = SHIELD; x.lineWidth = 2.5 * s; x.shadowColor = SHIELD; x.shadowBlur = 10 * s;
           x.beginPath(); x.arc(cx, iy, 12 * s, 0, Math.PI * 2); x.stroke();
@@ -830,6 +870,7 @@
     var title = "Sky High  " + fmt(m) + " m";
     var line = (best ? (m > best ? "New best!" : "Best " + fmt(best) + " m") : "Your first climb") +
       (run.rocket > 0 ? "  \u00b7  Rocket!" : "") + (run.shield ? "  \u00b7  Shield" : "") +
+      (run.magnet > 0 ? "  \u00b7  Magnet " + Math.ceil(run.magnet) + "s" : "") + (run.double > 0 ? "  \u00b7  x2 gems " + Math.ceil(run.double) + "s" : "") +
       (tally && tally.gems ? "  \u00b7  +" + short(tally.gems) + " gems" : "");
     if (shownHud.title !== title) { shownHud.title = title; els.hudTitle.textContent = title; }
     if (shownHud.line !== line) { shownHud.line = line; els.hudLine.textContent = line; }
@@ -861,6 +902,7 @@
     pause: pause,
     resume: resume,
     quit: function () { quit(false); },
+    run: function () { return run; },   // the run itself (tools and tests)
     // For tests: end the run now, as a fall.
     finish: function () { if (state === "playing" && run) run.dead = "fell"; },
     state: function () {
@@ -869,12 +911,12 @@
     },
     // A run without drawing or saving, for tests: how high a bot gets.
     sim: function (seconds, bot, seed, keep) {
-      var rn = newRun(seed === undefined ? 1 : seed), n = Math.round(seconds / DT), stats = { springs: 0, rockets: 0, shields: 0, gems: 0, traps: 0, pops: 0 };
+      var rn = newRun(seed === undefined ? 1 : seed), n = Math.round(seconds / DT), stats = { springs: 0, rockets: 0, shields: 0, gems: 0, traps: 0, pops: 0, magnets: 0, doubles: 0, clouds: 0 };
       for (var k = 0; k < n && !rn.dead; k++) {
         var d = bot ? bot({ ball: rn.ball, t: rn.t, plats: rn.world.plats.map(function (p) { return { x: platX(p, rn.t), y: p.y, w: p.w, kind: p.kind, broken: p.broken !== undefined }; }),
           mines: rn.world.mines, camY: rn.camY, rocket: rn.rocket, REACH: REACH, W: W, at: function (i, t) { return platX(rn.world.plats[i], t); } }) : 0;
         step(rn, DT, d, VIEW);
-        rn.events.forEach(function (e) { if (e.kind === "spring") stats.springs++; else if (e.kind === "rocket") stats.rockets++; else if (e.kind === "shield") stats.shields++; else if (e.kind === "gem") stats.gems++; else if (e.kind === "trap") stats.traps++; else if (e.kind === "pop") stats.pops++; });
+        rn.events.forEach(function (e) { if (e.kind === "spring") stats.springs++; else if (e.kind === "rocket") stats.rockets++; else if (e.kind === "shield") stats.shields++; else if (e.kind === "gem") stats.gems++; else if (e.kind === "trap") stats.traps++; else if (e.kind === "pop") stats.pops++; else if (e.kind === "magnet") stats.magnets++; else if (e.kind === "double") stats.doubles++; else if (e.kind === "bounce" && e.cloud) stats.clouds++; });
         rn.events = [];
       }
       return { metres: metres(rn), t: rn.t, dead: rn.dead, bounces: rn.bounces, stats: stats, run: keep ? rn : undefined };

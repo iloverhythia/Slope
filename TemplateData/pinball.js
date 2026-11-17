@@ -25,6 +25,19 @@
  *   Main game  Gem lights, XP lights, Golden flippers: more gems, XP and ball
  *              XP everywhere in the game
  *
+ * Expansion (bought once each): an Upper flipper (a third flipper on the
+ * left, mid-table, on the left keys), the Neon ramp (a shot up its entrance
+ * on the right rides over the top of the table and drops onto the left
+ * flipper; ramps in a row score double, triple...) and the Mystery orb (lit
+ * by the top lanes or the target bank: roll over it for a prize: an extra
+ * ball, a ball saver, another ball, double scoring, big points or tickets).
+ * With them: Ramp value, Mission bonus and Frenzy time.
+ *
+ * Missions: every game draws three (hit the bumpers 25 times, finish the
+ * lanes twice, two jackpots...). Each one done pays tickets and a mission
+ * star, +2% on every point for good; all three in one game starts Neon
+ * Frenzy: triple points for 20 seconds (more with Frenzy time).
+ *
  * Your best score is worth more gems in the main game too (+10% for every
  * tenfold over 1K), and a game gives the ball you wear some XP.
  *
@@ -41,7 +54,7 @@
 
   // --- Upgrades ----------------------------------------------------------------
 
-  var GROUPS = [["table", "Table"], ["score", "Scoring"], ["reward", "Rewards"], ["main", "Main game"]];
+  var GROUPS = [["table", "Table"], ["expansion", "Expansion"], ["score", "Scoring"], ["reward", "Rewards"], ["main", "Main game"]];
   var UPS = [
     { key: "balls", group: "table", name: "Extra ball", base: 120, growth: 4, max: 4, text: function (l) { return (3 + l) + " balls a game"; } },
     { key: "save", group: "table", name: "Ball saver", base: 30, growth: 2.4, max: 8, text: function (l) { return l ? "A ball lost in the first " + saveSeconds(l) + " s after a launch comes back" : "Off"; } },
@@ -49,6 +62,12 @@
     { key: "multi", group: "table", name: "Multiball", base: 250, growth: 5, max: 3, text: function (l) { return l ? "The saucer sends out " + l + (l === 1 ? " more ball" : " more balls") : "Off"; } },
     { key: "power", group: "table", name: "Power flippers", base: 25, growth: 2, max: 10, text: function (l) { return l ? "Flippers +" + (l * 5) + "% faster" : "Standard flippers"; } },
     { key: "pull", group: "table", name: "Saucer pull", base: 40, growth: 2.2, max: 10, text: function (l) { return l ? "The saucer pulls in balls from " + pullRadius(l) + " px" : "Off"; } },
+    { key: "upper", group: "expansion", name: "Upper flipper", base: 400, growth: 1, max: 1, text: function (l) { return l ? "A third flipper on the left, mid-table, on the left flipper keys" : "Not on the table yet"; } },
+    { key: "ramp", group: "expansion", name: "Neon ramp", base: 900, growth: 1, max: 1, text: function (l) { return l ? "A ramp on the right: shoot it for " + abbr(rampPoints(up("rampval"))) + " points, ramps in a row score more" : "Not on the table yet"; } },
+    { key: "mystery", group: "expansion", name: "Mystery orb", base: 1500, growth: 1, max: 1, text: function (l) { return l ? "Lit by the lanes and the target bank: roll over it for a prize" : "Not on the table yet"; } },
+    { key: "rampval", group: "expansion", name: "Ramp value", needs: "ramp", base: 60, growth: 1.6, max: 30, text: function (l) { return abbr(rampPoints(l)) + " points a ramp"; } },
+    { key: "missionpay", group: "expansion", name: "Mission bonus", base: 100, growth: 2.2, max: 10, text: function (l) { return "Missions pay " + abbr(missionTickets(l)) + " tickets (+" + (l * 25) + "%)"; } },
+    { key: "frenzy", group: "expansion", name: "Frenzy time", base: 200, growth: 2.3, max: 6, text: function (l) { return "Neon Frenzy lasts " + frenzySeconds(l) + " s"; } },
     { key: "bumper", group: "score", name: "Pop bumpers", base: 15, growth: 1.6, max: 40, text: function (l) { return abbr(bumperPoints(l)) + " points a hit"; } },
     { key: "spinner", group: "score", name: "Spinner gears", base: 20, growth: 1.6, max: 30, text: function (l) { return abbr(spinPoints(l)) + " points a spin"; } },
     { key: "targets", group: "score", name: "Drop targets", base: 25, growth: 1.65, max: 30, text: function (l) { return abbr(targetPoints(l)) + " a target, " + abbr(targetPoints(l) * 10) + " for the bank"; } },
@@ -78,7 +97,12 @@
   function spinPoints(l) { return 30 * (1 + 0.5 * l); }
   function targetPoints(l) { return 500 * (1 + 0.5 * l); }
   function jackpotPoints(l) { return 2500 * (1 + l); }
+  function rampPoints(l) { return 3000 * (1 + 0.5 * l); }
+  function frenzySeconds(l) { return 20 + 5 * l; }
+  function missionTickets(l) { return Math.round((40 + 4 * Math.min(100, pb.stars)) * (1 + 0.25 * l)); }
+  function starMult() { return 1 + 0.02 * Math.min(250, pb.stars); }
   function ballsAGame() { return 3 + up("balls"); }
+  function ballsThisGame() { return ballsAGame() + (g ? g.extraBalls : 0); }
   function pfMax() { return 2 + up("lanes"); }
   function flipSpeed() { return 22 * (1 + 0.05 * up("power")); }
   function recordBoost() { return 1 + 0.1 * Math.max(0, Math.log10(Math.max(1, pb.best) / 1000)); }
@@ -161,9 +185,36 @@
   var SAUCER = { x: 88, y: 140 };
 
   var flippers = [
-    { x: 114, y: 630, rest: FLIP_REST, up: FLIP_UP, a: FLIP_REST, w: 0, held: false },
-    { x: 262, y: 630, rest: Math.PI - FLIP_REST, up: Math.PI - FLIP_UP, a: Math.PI - FLIP_REST, w: 0, held: false }
+    { x: 114, y: 630, len: FLIP_LEN, side: "left", rest: FLIP_REST, up: FLIP_UP, a: FLIP_REST, w: 0, held: false },
+    { x: 262, y: 630, len: FLIP_LEN, side: "right", rest: Math.PI - FLIP_REST, up: Math.PI - FLIP_UP, a: Math.PI - FLIP_REST, w: 0, held: false },
+    // The Upper flipper (Expansion): at the foot of the left orbit, pointing right.
+    { x: 70, y: 392, len: 40, side: "left", exp: "upper", rest: 0.45, up: -0.3, a: 0.45, w: 0, held: false }
   ];
+  function flipperOn(f) { return !f.exp || up(f.exp) > 0; }
+  function anyHeld() { return flippers.some(function (f) { return f.held && flipperOn(f); }); }
+
+  // The Neon ramp (Expansion): a ball going up through its entrance fast
+  // enough rides it over the top of the table and drops into the left inlane.
+  var RAMP = [[296, 345], [304, 280], [318, 200], [322, 140], [306, 90], [270, 56], [220, 40], [170, 40], [124, 52], [86, 78],
+    [56, 112], [38, 160], [30, 220], [28, 300], [28, 380], [30, 425]];
+  var RAMP_IN = { x1: 266, x2: 326, y: 345 }, RAMP_SPEED = 1000;
+  var rampLen = [0];
+  for (var ri = 1; ri < RAMP.length; ri++) rampLen.push(rampLen[ri - 1] + Math.hypot(RAMP[ri][0] - RAMP[ri - 1][0], RAMP[ri][1] - RAMP[ri - 1][1]));
+  function rampAt(d) {
+    for (var k = 1; k < RAMP.length; k++) {
+      if (d <= rampLen[k]) { var u = (d - rampLen[k - 1]) / (rampLen[k] - rampLen[k - 1]); return [RAMP[k - 1][0] + (RAMP[k][0] - RAMP[k - 1][0]) * u, RAMP[k - 1][1] + (RAMP[k][1] - RAMP[k - 1][1]) * u]; }
+    }
+    return RAMP[RAMP.length - 1];
+  }
+  // The Mystery orb (Expansion), in the middle under the centre bumper.
+  var ORB = { x: MID, y: 388, r: 13 };
+
+  // Missions: three a game. [id, name, goal, what counts, the expansion it needs]
+  var MISSIONS = [
+    ["bumpers", "Bumper bash", 25, "pop bumper hits"], ["slings", "Slingshot", 20, "slingshot kicks"], ["spins", "Spin cycle", 60, "spins"],
+    ["lanes", "Lane runner", 2, "lane sets"], ["banks", "Target practice", 2, "target banks"], ["jackpots", "Jackpot hunter", 2, "jackpots"],
+    ["ramps", "Ramp rider", 4, "ramps", "ramp"], ["mysteries", "Mystery seeker", 2, "mystery prizes", "mystery"]
+  ].map(function (m) { return { id: m[0], name: m[1], goal: m[2], what: m[3], needs: m[4] || null }; });
 
   // --- Physics --------------------------------------------------------------------------
 
@@ -191,7 +242,7 @@
     var px = ax + t * dx, py = ay + t * dy;
     return push(b, px, py, r, e, pivot ? -w * (py - pivot.y) : 0, pivot ? w * (px - pivot.x) : 0);
   }
-  function tipOf(f) { return [f.x + FLIP_LEN * Math.cos(f.a), f.y + FLIP_LEN * Math.sin(f.a)]; }
+  function tipOf(f) { return [f.x + f.len * Math.cos(f.a), f.y + f.len * Math.sin(f.a)]; }
   function plungerTop() { return PLUNGER_Y + PULL * pull; }
 
   // --- A game -------------------------------------------------------------------------------
@@ -201,12 +252,45 @@
   var spin = { angle: 0, speed: 0 };
 
   function newBall(auto) {
-    return { x: LANE_X, y: PLUNGER_Y - R, vx: 0, vy: 0, rot: 0, ready: true, inLane: true, hold: 0, cool: 0, still: 0, auto: auto ? 0.7 : 0, roll: [false, false, false], extra: !!auto };
+    return { x: LANE_X, y: PLUNGER_Y - R, vx: 0, vy: 0, rot: 0, ready: true, inLane: true, hold: 0, cool: 0, still: 0, auto: auto ? 0.7 : 0, roll: [false, false, false], extra: !!auto,
+      ramp: -1, onOrb: false };
+  }
+
+  // Three missions for this game, from those the table has what for.
+  function drawMissions() {
+    var pool = MISSIONS.filter(function (m) { return !m.needs || up(m.needs); }), out = [];
+    while (out.length < 3 && pool.length) out.push({ m: pool.splice(Math.floor(Math.random() * pool.length), 1)[0], done: false });
+    return out;
+  }
+  function missionCount(id) {
+    var h = g.hits;
+    return id === "bumpers" ? h.bumper || 0 : id === "slings" ? h.sling || 0 : id === "spins" ? g.spins : id === "lanes" ? g.lanesDone :
+      id === "banks" ? g.banks : id === "jackpots" ? g.jackpots : id === "ramps" ? g.ramps : g.mysteries;
+  }
+  function checkMissions() {
+    var newly = 0;
+    g.missions.forEach(function (ms) {
+      if (ms.done || missionCount(ms.m.id) < ms.m.goal) return;
+      ms.done = true;
+      newly++;
+      g.starsWon++;
+      g.missionTickets += missionTickets(up("missionpay"));
+      flash("Mission: " + ms.m.name + "!", 2);
+      say("Mission complete: " + ms.m.name + ". +" + missionTickets(up("missionpay")) + " tickets and a mission star.");
+    });
+    if (newly && !g.frenzyDone && g.missions.length && g.missions.every(function (ms) { return ms.done; })) {
+      g.frenzyDone = true;
+      g.frenzy = frenzySeconds(up("frenzy"));
+      flash("NEON FRENZY! x3", 3);
+    }
   }
 
   function start() {
     g = { score: 0, ball: 1, pf: 1, lanes: [false, false, false], laneFlash: 0, balls: [newBall(false)], queue: 0, time: 0, saveUntil: 0,
-      chain: 0, lastHit: -9, over: false, paused: false, gems: 0, texts: [], jackpots: 0, msg: "", msgT: 0, bankDown: 0, magnetT: 0, nudges: 0, escapes: 0, hits: {} };
+      chain: 0, lastHit: -9, over: false, paused: false, gems: 0, texts: [], jackpots: 0, msg: "", msgT: 0, bankDown: 0, magnetT: 0, nudges: 0, escapes: 0, hits: {},
+      extraBalls: 0, spins: 0, lanesDone: 0, banks: 0, ramps: 0, rampChain: 0, lastRamp: -9, mysteries: 0, mysteryLit: false, double: 0, frenzy: 0, frenzyDone: false,
+      missions: [], starsWon: 0, missionTickets: 0, bonusTickets: 0 };
+    g.missions = drawMissions();
     targets.forEach(function (t) { t.up = true; });
     bumpers.forEach(function (b) { b.fired = -1; b.flash = 0; });
     releaseAll();
@@ -222,9 +306,11 @@
     if (what) g.hits[what] = (g.hits[what] || 0) + 1;
     if (g.time - g.lastHit < 1.2) g.chain = Math.min(20, g.chain + 1); else g.chain = 0;
     g.lastHit = g.time;
-    var n = Math.round(base * g.pf * (1 + 0.25 * up("mult")) * (1 + 0.005 * up("combo") * g.chain));
+    var n = Math.round(base * g.pf * (1 + 0.25 * up("mult")) * (1 + 0.005 * up("combo") * g.chain) * starMult() *
+      (g.double > 0 ? 2 : 1) * (g.frenzy > 0 ? 3 : 1));
     g.score += n;
-    if (x !== undefined) floatText(abbr(n), x, y, gold);
+    if (x !== undefined) floatText(abbr(n), x, y, gold || g.frenzy > 0);
+    if (what) checkMissions();
     return n;
   }
 
@@ -249,7 +335,9 @@
     t.up = false;
     points(targetPoints(up("targets")), t.ax - 20, (t.ay + t.by) / 2, false, "target");
     if (targets.every(function (x) { return !x.up; })) {
-      points(targetPoints(up("targets")) * 10, 300, 370, true);
+      g.banks++;
+      lightOrb();
+      points(targetPoints(up("targets")) * 10, 300, 370, true, "bank");
       flash("Target bank!");
       g.bankDown = 1.5;
     }
@@ -260,10 +348,43 @@
     points(500, LANES[i], LANE_Y + 26, false, "lane");
     g.lanes[i] = true;
     if (g.lanes.every(Boolean)) {
-      points(5000, MID, 140, true);
+      g.lanesDone++;
+      lightOrb();
+      points(5000, MID, 140, true, "laneset");
       if (g.pf < pfMax()) { g.pf++; flash("Playfield x" + g.pf + "!"); } else flash("Lanes complete!");
       g.laneFlash = 1.2;
     }
+  }
+
+  function lightOrb() { if (up("mystery") && !g.mysteryLit) { g.mysteryLit = true; floatText("Mystery lit!", ORB.x, ORB.y + 28, true); } }
+
+  // The Mystery orb, rolled over: lit, a prize; unlit, a few points.
+  function mysteryPrize() {
+    if (!g.mysteryLit) { points(250, ORB.x, ORB.y - 20, false, "orb"); return; }
+    g.mysteryLit = false;
+    g.mysteries++;
+    var prizes = [["extra", 10], ["save", 20], ["ball", 15], ["double", 20], ["points", 20], ["tickets", 15]], total = 0;
+    prizes.forEach(function (p) { total += p[1]; });
+    var r = Math.random() * total, pick = prizes[0][0];
+    for (var k = 0; k < prizes.length; k++) { if (r < prizes[k][1]) { pick = prizes[k][0]; break; } r -= prizes[k][1]; }
+    if (pick === "extra" && g.extraBalls >= 2) pick = "points";
+    if (pick === "ball" && g.balls.length + g.queue >= 5) pick = "double";
+    if (pick === "extra") { g.extraBalls++; flash("Extra ball!", 2); }
+    else if (pick === "save") { g.saveUntil = g.time + 15; flash("Ball saver: 15 s", 2); }
+    else if (pick === "ball") { g.queue++; flash("Add a ball!", 2); }
+    else if (pick === "double") { g.double = 20; flash("Double scoring!", 2); }
+    else if (pick === "tickets") { g.bonusTickets += 25 + 5 * Math.min(100, pb.stars); flash("+" + (25 + 5 * Math.min(100, pb.stars)) + " tickets!", 2); }
+    else flash("Big points!", 2);
+    points(pick === "points" ? 25000 : 2500, ORB.x, ORB.y - 24, true, "mystery");
+  }
+
+  // A ball onto the ramp: points, and more for ramps in a row.
+  function rampShot() {
+    g.ramps++;
+    g.rampChain = g.time - g.lastRamp < 6 ? g.rampChain + 1 : 1;
+    g.lastRamp = g.time;
+    points(rampPoints(up("rampval")) * g.rampChain, 296, 330, true, "ramp");
+    if (g.rampChain > 1) flash("Ramp combo x" + g.rampChain + "!");
   }
 
   function catchSaucer(b) {
@@ -278,6 +399,14 @@
 
   function stepBall(b, dt) {
     if (b.cool > 0) b.cool -= dt;
+    if (b.ramp >= 0) {   // riding the ramp: along its path, then out into the left inlane
+      b.ramp += RAMP_SPEED * dt;
+      var at = rampAt(b.ramp), prevX = b.x;
+      b.x = at[0]; b.y = at[1];
+      b.rot += (b.x - prevX) / R;
+      if (b.ramp >= rampLen[rampLen.length - 1]) { b.ramp = -1; b.vx = 10; b.vy = 320; }
+      return;
+    }
     if (b.hold > 0) {
       b.hold -= dt;
       b.x = SAUCER.x; b.y = SAUCER.y;
@@ -323,8 +452,21 @@
       }
     }
     for (i = 0; i < flippers.length; i++) {
-      var f = flippers[i], tp = tipOf(f);
+      var f = flippers[i];
+      if (!flipperOn(f)) continue;
+      var tp = tipOf(f);
       capsule(b, f.x, f.y, tp[0], tp[1], FLIP_R, 0.25, f, f.w);
+    }
+    // The ramp's entrance (going up, fast enough) and the Mystery orb.
+    if (up("ramp") && py > RAMP_IN.y && b.y <= RAMP_IN.y && b.x > RAMP_IN.x1 && b.x < RAMP_IN.x2 && b.vy < -300) {
+      b.ramp = 0;
+      rampShot();
+      return;
+    }
+    if (up("mystery")) {
+      var onOrb = Math.hypot(b.x - ORB.x, b.y - ORB.y) < ORB.r + 4;
+      if (onOrb && !b.onOrb) mysteryPrize();
+      b.onOrb = onOrb;
     }
 
     // Sensors: the top lanes, the spinner and the saucer.
@@ -335,6 +477,7 @@
     }
     if ((py < SPINNER.y) !== (b.y < SPINNER.y) && b.x > SPINNER.x1 && b.x < SPINNER.x2) {
       var spins = 1 + Math.round(Math.abs(b.vy) / 60);
+      g.spins += spins;
       spin.speed = (b.vy < 0 ? -1 : 1) * Math.min(60, Math.abs(b.vy) / 12);
       points(spinPoints(up("spinner")) * spins, SPINNER.x2 + 24, SPINNER.y, false, "spinner");
     }
@@ -353,7 +496,7 @@
     }
 
     // A ball that sits still (balanced on something) gets a nudge.
-    if (Math.hypot(b.vx, b.vy) < 8 && !flippers[0].held && !flippers[1].held) {
+    if (Math.hypot(b.vx, b.vy) < 8 && !anyHeld()) {
       if ((b.still += dt) > 2.5) { b.vx = (Math.random() - 0.5) * 300; b.vy = -260; b.still = 0; g.nudges++; }
     } else b.still = 0;
     if (b.y > H + 30) b.gone = true;
@@ -364,10 +507,10 @@
     var list = g.balls;
     for (var i = 0; i < list.length; i++) {
       var a = list[i];
-      if (a.ready || a.hold > 0) continue;
+      if (a.ready || a.hold > 0 || a.ramp >= 0) continue;
       for (var j = i + 1; j < list.length; j++) {
         var b = list[j];
-        if (b.ready || b.hold > 0) continue;
+        if (b.ready || b.hold > 0 || b.ramp >= 0) continue;
         var dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
         if (d2 >= 4 * R * R || d2 < 1e-9) continue;
         var d = Math.sqrt(d2), ux = dx / d, uy = dy / d, over = (2 * R - d) / 2;
@@ -402,6 +545,8 @@
     if (g.laneFlash > 0 && (g.laneFlash -= dt) <= 0) g.lanes = [false, false, false];
     if (g.bankDown > 0 && (g.bankDown -= dt) <= 0) targets.forEach(function (t) { t.up = true; });
     if (g.msgT > 0) g.msgT -= dt;
+    if (g.double > 0) g.double -= dt;
+    if (g.frenzy > 0) g.frenzy -= dt;
     spin.angle += spin.speed * dt;
     spin.speed *= Math.pow(0.35, dt);
     if (Math.abs(spin.speed) < 0.3) spin.speed = 0;
@@ -417,10 +562,10 @@
     g.pf = 1;
     g.lanes = [false, false, false];
     g.chain = 0;
-    if (g.ball > ballsAGame()) { end(); return; }
+    if (g.ball > ballsThisGame()) { end(); return; }
     g.balls.push(newBall(false));
     flash("Ball " + g.ball);
-    say("Ball " + g.ball + " of " + ballsAGame() + ".");
+    say("Ball " + g.ball + " of " + ballsThisGame() + ".");
   }
 
   // The game is over (or ended early): its score turns into tickets.
@@ -430,16 +575,19 @@
     g.balls = [];
     g.queue = 0;
     releaseAll();
-    var tickets = ticketsFor(g.score), record = g.score > pb.best;
+    var tickets = ticketsFor(g.score) + g.missionTickets + g.bonusTickets, record = g.score > pb.best;
     pb.tickets += tickets;
     pb.games++;
     pb.total += g.score;
+    pb.stars += g.starsWon;
+    pb.missions += g.starsWon;
     if (record) pb.best = g.score;
     save(true);
     var levels = g.score ? profile.addBallXp(Math.floor(Math.sqrt(g.score) / 4)) : 0;
     flash(record ? "New record!" : "Game over", 99);
     g.result = { score: g.score, tickets: tickets, record: record };
     say((record ? "New record: " : "Game over: ") + full(g.score) + " points, +" + full(tickets) + (tickets === 1 ? " ticket" : " tickets") +
+      (g.starsWon ? ", " + g.starsWon + (g.starsWon === 1 ? " mission star" : " mission stars") : "") +
       (g.gems ? ", +" + full(g.gems) + " gems" : "") + (levels ? ". Ball level up!" : "."));
     render();
   }
@@ -478,7 +626,7 @@
     if (on && !f.held && g.laneFlash <= 0) {   // lane change: the lit lanes move with the flipper
       g.lanes = ctl === "left" ? g.lanes.slice(1).concat(g.lanes[0]) : [g.lanes[2]].concat(g.lanes.slice(0, 2));
     }
-    f.held = on;
+    flippers.forEach(function (x) { if (x.side === ctl) x.held = on; });   // the Upper flipper goes with the left
   }
   function releaseAll() {
     holders = { left: {}, right: {}, launch: {} };
@@ -527,7 +675,7 @@
 
   // The parts that never move, drawn once (again when the colour or size changes).
   function drawStatic() {
-    var key = colour() + "/" + els.canvas.width;
+    var key = colour() + "/" + els.canvas.width + "/" + up("ramp") + up("mystery") + up("upper");
     if (key === staticKey) return;
     staticKey = key;
     staticLayer = staticLayer || document.createElement("canvas");
@@ -541,7 +689,7 @@
     x.globalAlpha = 1;
     // Arrows on the playfield that point at the lanes and the saucer.
     x.strokeStyle = c; x.lineWidth = 2; x.globalAlpha = 0.35;
-    [[MID, 328, 0], [104, 330, -0.5], [272, 330, 0.5]].forEach(function (a) {
+    [[MID, 328, 0], [104, 330, -0.5], [272, 330, 0.5]].filter(function (a) { return !(up("ramp") && a[0] === 272); }).forEach(function (a) {
       x.save(); x.translate(a[0], a[1]); x.rotate(a[2]);
       for (var k = 0; k < 3; k++) { poly(x, [[-10, 12 + k * 14], [0, k * 14], [10, 12 + k * 14]]); x.stroke(); }
       x.restore();
@@ -570,6 +718,39 @@
     x.shadowColor = GOLD; x.strokeStyle = GOLD; x.lineWidth = 3;
     x.fillStyle = "#000"; x.beginPath(); x.arc(SAUCER.x, SAUCER.y, 14, 0, Math.PI * 2); x.fill(); x.stroke();
     x.shadowBlur = 0;
+    // Expansion: the Mystery orb's socket.
+    if (up("mystery")) {
+      x.strokeStyle = "#ff5bd8"; x.lineWidth = 2; x.setLineDash([4, 4]);
+      x.beginPath(); x.arc(ORB.x, ORB.y, ORB.r + 4, 0, Math.PI * 2); x.stroke();
+      x.setLineDash([]);
+    }
+    // Expansion: the Neon ramp, raised over the table: two rails, a see-through
+    // floor with chevrons, and its entrance.
+    if (up("ramp")) {
+      var left = [], right = [];
+      RAMP.forEach(function (pt, k) {
+        var a = RAMP[Math.max(0, k - 1)], b = RAMP[Math.min(RAMP.length - 1, k + 1)], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1;
+        left.push([pt[0] - dy / d * 14, pt[1] + dx / d * 14]); right.push([pt[0] + dy / d * 14, pt[1] - dx / d * 14]);
+      });
+      x.fillStyle = c; x.globalAlpha = 0.1;
+      poly(x, left.concat(right.slice().reverse()), true); x.fill();
+      x.globalAlpha = 1;
+      x.shadowColor = c; x.shadowBlur = 6; x.strokeStyle = c; x.lineWidth = 2.5;
+      poly(x, left); x.stroke(); poly(x, right); x.stroke();
+      x.shadowBlur = 0;
+      x.globalAlpha = 0.5; x.lineWidth = 2;
+      for (var dd = 60; dd < rampLen[rampLen.length - 1] - 30; dd += 70) {
+        var p0 = rampAt(dd - 6), p1 = rampAt(dd + 6), ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]);
+        x.save(); x.translate(p1[0], p1[1]); x.rotate(ang);
+        poly(x, [[-6, -6], [0, 0], [-6, 6]]); x.stroke();
+        x.restore();
+      }
+      x.globalAlpha = 1;
+      x.strokeStyle = GOLD; x.lineWidth = 3;
+      line(x, RAMP_IN.x1, RAMP_IN.y + 4, RAMP_IN.x2, RAMP_IN.y + 4);
+      x.font = "11px " + fontFamily; x.fillStyle = GOLD; x.textAlign = "center";
+      x.fillText("RAMP", (RAMP_IN.x1 + RAMP_IN.x2) / 2, RAMP_IN.y + 18);
+    }
   }
 
   function capsulePath(x, ax, ay, bx, by, r) {
@@ -595,7 +776,9 @@
       x.globalAlpha = s.flash * 0.8; poly(x, s.pts, true); x.fillStyle = c; x.fill(); x.globalAlpha = 1;
     });
     // Bumpers.
+    var bc = g && g.frenzy > 0 ? GOLD : c;   // Neon Frenzy: gold bumpers
     bumpers.forEach(function (b) {
+      var c = bc;
       x.fillStyle = b.flash ? c : "#000";
       x.globalAlpha = b.flash ? 0.35 + 0.65 * b.flash : 1;
       x.beginPath(); x.arc(b.x, b.y, b.r, 0, Math.PI * 2); x.fill();
@@ -635,11 +818,20 @@
     x.fillStyle = c; x.globalAlpha = 0.4 + 0.6 * sc;
     x.fillRect(SPINNER.x1 + 4, SPINNER.y - 1 - 5 * sc, SPINNER.x2 - SPINNER.x1 - 8, 2 + 10 * sc);
     x.globalAlpha = 1;
+    // The Mystery orb: pulsing pink when lit.
+    if (up("mystery")) {
+      var lit = g && g.mysteryLit;
+      x.fillStyle = lit ? "#ff5bd8" : "#000"; x.globalAlpha = lit ? 0.55 + 0.45 * Math.sin(t * 6) : 1;
+      x.beginPath(); x.arc(ORB.x, ORB.y, ORB.r, 0, Math.PI * 2); x.fill();
+      x.globalAlpha = 1; x.strokeStyle = "#ff5bd8"; x.lineWidth = 2; x.stroke();
+      x.font = "13px " + fontFamily; x.textAlign = "center"; x.fillStyle = lit ? "#000" : "#ff5bd8"; x.fillText("?", ORB.x, ORB.y + 5);
+    }
     // The saucer glows when it holds a ball.
     var holding = g && g.balls.some(function (b) { return b.hold > 0; });
     if (holding) { x.fillStyle = GOLD; x.globalAlpha = 0.5 + 0.5 * Math.sin(t * 20); x.beginPath(); x.arc(SAUCER.x, SAUCER.y, 12, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1; }
     // Flippers.
     flippers.forEach(function (f) {
+      if (!flipperOn(f)) return;
       var tp = tipOf(f);
       capsulePath(x, f.x, f.y, tp[0], tp[1], FLIP_R + 1);
       x.fillStyle = f.held ? c : "#000"; x.globalAlpha = f.held ? 0.35 : 1; x.fill(); x.globalAlpha = 1;
@@ -700,6 +892,9 @@
       x.font = "22px " + fontFamily; x.fillStyle = GOLD; x.globalAlpha = Math.min(1, g.msgT * 2);
       x.fillText(g.msg, MID, 560); x.globalAlpha = 1;
     }
+    // Timed effects along the bottom.
+    var timers = (g.frenzy > 0 ? "FRENZY x3 " + Math.ceil(g.frenzy) + "s  " : "") + (g.double > 0 ? "DOUBLE " + Math.ceil(g.double) + "s" : "");
+    if (timers) { x.font = "13px " + fontFamily; x.fillStyle = GOLD; x.fillText(timers, MID, 596); }
     var waiting = g.balls.some(function (b) { return b.ready && !b.extra; });
     if (waiting && !pulling) { x.font = "13px " + fontFamily; x.fillStyle = c; x.fillText("Hold Space to launch", MID, 700); }
   }
@@ -772,6 +967,7 @@
             '<p class="slope-pinball-info"></p>' +
             '<p class="slope-pinball-tickets"></p>' +
             '<p class="slope-pinball-main"></p>' +
+            '<div class="slope-pinball-missions"><p class="slope-pinball-missions-title"></p><ul></ul></div>' +
             '<div class="slope-pinball-actions">' +
               '<button type="button" class="slope-btn slope-pinball-play"></button>' +
               '<button type="button" class="slope-btn slope-pinball-end" hidden>End game</button>' +
@@ -804,6 +1000,8 @@
       play: screen.querySelector(".slope-pinball-play"),
       end: screen.querySelector(".slope-pinball-end"),
       status: screen.querySelector(".slope-pinball-status"),
+      missionsTitle: screen.querySelector(".slope-pinball-missions-title"),
+      missions: screen.querySelector(".slope-pinball-missions ul"),
       ups: UPS.map(function (u) {
         var li = screen.querySelector('[data-up="' + u.key + '"]');
         return { item: u, name: li.querySelector(".slope-merge-upgrade-name"), effect: li.querySelector(".slope-merge-upgrade-effect"), buy: li.querySelector("button") };
@@ -874,14 +1072,16 @@
 
   function buy(u) {
     var l = up(u.key), price = upPrice(u, l);
-    if (l >= u.max || pb.tickets < price) return;
+    if (l >= u.max || pb.tickets < price || (u.needs && !up(u.needs))) return;
     pb.tickets -= price;
     pb.up[u.key] = l + 1;
     save(true);
-    say(u.name + " " + (l + 1) + ": " + u.text(l + 1) + ".");
+    say(u.group === "expansion" && u.max === 1 ? u.name + " is on the table! " + u.text(1) + "." : u.name + " " + (l + 1) + ": " + u.text(l + 1) + ".");
+    staticKey = "";
     render();
   }
 
+  function byKey(k) { for (var i = 0; i < UPS.length; i++) if (UPS[i].key === k) return UPS[i]; return UPS[0]; }
   var shownText = {};
   function setText(el, key, text) { if (shownText[key] !== text) { shownText[key] = text; el.textContent = text; } }
 
@@ -891,9 +1091,16 @@
     var playing = g && !g.over;
     setText(els.score, "score", abbr(g ? g.score : 0));
     setText(els.info, "info", playing
-      ? "Ball " + Math.min(g.ball, ballsAGame()) + " of " + ballsAGame() + "  \u00b7  playfield x" + g.pf +
+      ? "Ball " + Math.min(g.ball, ballsThisGame()) + " of " + ballsThisGame() + "  \u00b7  playfield x" + g.pf +
         (g.chain > 1 && up("combo") ? "  \u00b7  combo " + g.chain : "") + (g.balls.length > 1 ? "  \u00b7  " + g.balls.length + " balls" : "")
       : pb.games ? "Best " + abbr(pb.best) + "  \u00b7  " + full(pb.games) + (pb.games === 1 ? " game" : " games") : "No games yet");
+    setText(els.missionsTitle, "mtitle", "Missions  \u00b7  " + full(pb.stars + (playing ? g.starsWon : 0)) + (pb.stars + (playing ? g.starsWon : 0) === 1 ? " star" : " stars") +
+      " (points x" + (1 + 0.02 * Math.min(250, pb.stars)).toFixed(2) + ")");
+    var mhtml = g && g.missions.length ? g.missions.map(function (ms) {
+      var n = Math.min(ms.m.goal, missionCount(ms.m.id));
+      return '<li class="' + (ms.done ? "is-done" : "") + '">' + ms.m.name + ": " + n + "/" + ms.m.goal + " " + ms.m.what + (ms.done ? "  \u2713" : "") + "</li>";
+    }).join("") : "<li>Three missions come with every game.</li>";
+    if (shownText.missions !== mhtml) { shownText.missions = mhtml; els.missions.innerHTML = mhtml; }
     if (els.play.hidden !== !!playing) {   // Play and End game swap places; the focus goes along
       var focused = document.activeElement;
       els.play.hidden = !!playing;
@@ -914,9 +1121,10 @@
       var u = r.item, l = up(u.key), maxed = l >= u.max, price = upPrice(u, l);
       r.name.textContent = u.name + (l ? " " + l : "");
       r.effect.textContent = "Now: " + u.text(l) + (maxed ? " (max)" : ". Next: " + u.text(l + 1));
-      r.buy.innerHTML = maxed ? "Max" : dots(TICKET, 2) + "<span>" + abbr(price) + "</span>";
-      r.buy.disabled = maxed || pb.tickets < price;
-      r.buy.setAttribute("aria-label", maxed ? u.name + ", at its best" : "Buy " + u.name + " for " + full(price) + " tickets");
+      var locked = u.needs && !up(u.needs);
+      r.buy.innerHTML = maxed ? (u.max === 1 ? "Owned" : "Max") : locked ? "Needs " + byKey(u.needs).name.split(" ").pop() : dots(TICKET, 2) + "<span>" + abbr(price) + "</span>";
+      r.buy.disabled = maxed || locked || pb.tickets < price;
+      r.buy.setAttribute("aria-label", maxed ? u.name + (u.max === 1 ? ", on the table" : ", at its best") : locked ? u.name + ": needs the " + byKey(u.needs).name : "Buy " + u.name + " for " + full(price) + " tickets");
     });
     renderNumbers();
   }
@@ -955,10 +1163,13 @@
     state: function () {
       return {
         tickets: pb.tickets, best: pb.best, games: pb.games, total: pb.total, up: Object.assign({}, pb.up),
-        game: g ? { score: g.score, ball: g.ball, balls: g.balls.map(function (b) { return { x: b.x, y: b.y, vx: b.vx, vy: b.vy, ready: b.ready, hold: b.hold }; }),
+        game: g ? { score: g.score, ball: g.ball, balls: g.balls.map(function (b) { return { x: b.x, y: b.y, vx: b.vx, vy: b.vy, ready: b.ready, hold: b.hold, ramp: b.ramp }; }),
           pf: g.pf, lanes: g.lanes.slice(), over: g.over, paused: g.paused, jackpots: g.jackpots, gems: g.gems, time: g.time,
-          nudges: g.nudges, escapes: g.escapes, hits: Object.assign({}, g.hits) } : null,
-        flippers: flippers.map(function (f) { return { a: f.a, held: f.held }; }),
+          nudges: g.nudges, escapes: g.escapes, hits: Object.assign({}, g.hits), ramps: g.ramps, mysteries: g.mysteries, mysteryLit: g.mysteryLit,
+          missions: g.missions.map(function (ms) { return { id: ms.m.id, n: missionCount(ms.m.id), goal: ms.m.goal, done: ms.done }; }), starsWon: g.starsWon,
+          frenzy: g.frenzy, frenzyDone: g.frenzyDone, double: g.double, extraBalls: g.extraBalls, missionTickets: g.missionTickets, bonusTickets: g.bonusTickets } : null,
+        stars: pb.stars, missions: pb.missions,
+        flippers: flippers.filter(flipperOn).map(function (f) { return { a: f.a, held: f.held, side: f.side }; }),
         targets: targets.map(function (t) { return t.up; })
       };
     },
@@ -975,7 +1186,7 @@
       for (var k = 0; k < n && !g.over; k++) {
         if (bot) {
           var want = bot({ balls: g.balls, flippers: flippers, time: g.time });
-          flippers[0].held = !!want.left; flippers[1].held = !!want.right;
+          flippers.forEach(function (f) { f.held = f.side === "left" ? !!want.left : !!want.right; });
           var b = g.balls.filter(function (x) { return x.ready && !x.extra; })[0];
           if (b && want.launch) launch(b, want.launch);
         }

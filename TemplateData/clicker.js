@@ -7,6 +7,7 @@
  *                Combo (fast taps build a bonus), Tap echo (taps also give a
  *                share of the energy a second)
  *   Generators   nine of them, Spark to Big Bang: energy every second, each
+ *                doubling at 25, 50, 100, 150, 200, 300, 400 and 500 owned;
  *                one dearer (15% a copy) and far stronger than the last
  *   Boosters     Overvolt (generators x2 a level), Synergy (+0.5% a level for
  *                every generator owned), Golden cores (a golden orb turns up
@@ -97,6 +98,10 @@
 
   function prestigeMult() { return 1 + 0.05 * c.earned; }
   function genCount() { var n = 0; GENS.forEach(function (g) { n += owned(g.key); }); return n; }
+  // Milestones: a generator doubles at each of these counts owned.
+  var MILESTONES = [25, 50, 100, 150, 200, 300, 400, 500];
+  function milestoneMult(n) { var m = 1; MILESTONES.forEach(function (k) { if (n >= k) m *= 2; }); return m; }
+  function nextMilestone(n) { for (var i = 0; i < MILESTONES.length; i++) if (n < MILESTONES[i]) return MILESTONES[i]; return 0; }
   function genPrice(g, have) { return g.base * Math.pow(1.15, have) * (1 - 0.02 * sup("cheap")); }
   function upPrice(u, level) { return u.base * Math.pow(u.growth, level); }
   function shardPrice(u, level) { return Math.round(u.base * Math.pow(u.growth, level)); }
@@ -104,7 +109,7 @@
   // Energy a second from generators, all boosts in.
   function cps() {
     var base = 0;
-    GENS.forEach(function (g) { base += owned(g.key) * g.cps; });
+    GENS.forEach(function (g) { base += owned(g.key) * g.cps * milestoneMult(owned(g.key)); });
     return base * Math.pow(2, up("overvolt")) * (1 + 0.005 * up("synergy") * genCount()) * prestigeMult();
   }
   function tapValue() { return (1 + up("tap")) * Math.pow(2, up("tapmult")) * prestigeMult(); }
@@ -461,8 +466,9 @@
     els.gens.forEach(function (r) {
       var g = r.item, have = owned(g.key), o = genOrder(g);
       r.name.textContent = g.name + (have ? " " + have : "");
-      var each = g.cps * Math.pow(2, up("overvolt")) * (1 + 0.005 * up("synergy") * genCount()) * prestigeMult();
-      r.effect.textContent = abbr(each) + " energy a second each" + (have ? "  \u00b7  " + abbr(each * have) + " in all" : "");
+      var each = g.cps * milestoneMult(have) * Math.pow(2, up("overvolt")) * (1 + 0.005 * up("synergy") * genCount()) * prestigeMult(), next = nextMilestone(have);
+      r.effect.textContent = abbr(each) + " energy a second each" + (have ? "  \u00b7  " + abbr(each * have) + " in all" : "") +
+        (milestoneMult(have) > 1 ? "  \u00b7  x" + milestoneMult(have) : "") + (next ? "  \u00b7  x2 at " + next : "  \u00b7  all milestones");
       r.buy.innerHTML = (o.n > 1 ? "x" + o.n + " " : "") + priceHtml(o.cost);
       r.buy.setAttribute("aria-label", "Buy " + o.n + " " + g.name + " for " + full(o.cost) + " energy");
     });

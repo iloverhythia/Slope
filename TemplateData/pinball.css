@@ -103,6 +103,36 @@
   display: none;
 }
 
+/* Missions: three a game, ticked off as they're done. */
+.slope-pinball-missions {
+  padding: 8px 10px;
+  box-shadow: inset 0 0 0 1px var(--slope-dim);
+}
+
+.slope-pinball-missions-title {
+  font-family: var(--slope-display);
+  font-size: 15px;
+}
+
+.slope-pinball-missions ul {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slope-pinball-missions li {
+  color: var(--slope-dim);
+}
+
+.slope-pinball-missions li.is-done {
+  color: #ffd43b;
+}
+
 .slope-pinball-hint {
   color: var(--slope-dim);
   font-size: 13px;

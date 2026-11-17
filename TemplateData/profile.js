@@ -109,7 +109,9 @@
     s = s && typeof s === "object" ? s : {};
     var up = {};
     if (s.up && typeof s.up === "object") Object.keys(s.up).forEach(function (k) { if (/^[a-z]{1,16}$/.test(k)) { var v = int(s.up[k], 1e4); if (v) up[k] = v; } });
-    return { tickets: int(s.tickets, 1e15), best: int(s.best, 1e15), games: int(s.games, 1e9), total: int(s.total, 1e18), up: up };
+    // stars: missions completed (each is +2% points on the table); missions: the same, all time
+    return { tickets: int(s.tickets, 1e15), best: int(s.best, 1e15), games: int(s.games, 1e9), total: int(s.total, 1e18), up: up,
+      stars: int(s.stars, 1e6), missions: int(s.missions, 1e9) };
   }
 
   // The Core Clicker (clicker.js): energy, this run's total, all-time energy,
