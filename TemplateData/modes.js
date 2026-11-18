@@ -47,7 +47,7 @@
   var GROUPS = [{ id: "slope", name: "Slope" }, { id: "platformer", name: "Platformer" }, { id: "sky", name: "Sky High", tag: "New" }];
   var MODES = [
     { id: "classic", group: "slope", name: "Classic", text: "The original: the slope, your ball and nothing else in the way.", keys: SLOPE_KEYS },
-    { id: "randomizer", group: "slope", name: "Randomizer", text: "Every few seconds a random effect for a short while. Some help you, some get in your way.", keys: SLOPE_KEYS },
+    { id: "randomizer", group: "slope", name: "Randomizer", text: "Every few seconds one of " + ((window.SlopeFx && window.SlopeFx.list.length) || 120) + " random effects for a short while: slow motion, upside down, snow, gem fever, lag, the Matrix, free gems... Some help you, some get in your way.", keys: SLOPE_KEYS },
     { id: "advanced", group: "slope", name: "Advanced", text: "Every obstacle and slope from the Adventure levels, all the way down: closer together and quicker the further you get.", keys: SLOPE_KEYS },
     { id: "rush", group: "slope", name: "Gem Rush", text: "60 seconds to grab every gem you can. Three times the gems, and they fly to you.", keys: SLOPE_KEYS },
     { id: "legacy", group: "slope", name: "Legacy", text: "The original steering: the ball picks up speed sideways while you hold a key, and keeps sliding when you let go.", keys: SLOPE_KEYS },
@@ -62,22 +62,13 @@
   function isSky(id) { return id === "sky-high"; }
   function ownGame(id) { return isPlatformer(id) || isSky(id); }   // not a Slope run
 
-  var EFFECTS = [
-    { id: "slowmo", name: "Slow-mo", text: "Everything slows down", good: true, seconds: 6 },
-    { id: "gemrain", name: "Gem rain", text: "Three times the gems", good: true, seconds: 7 },
-    { id: "magnet", name: "Magnet", text: "Gems fly to you", good: true, seconds: 7 },
-    { id: "double", name: "Double gems", text: "Every gem counts twice", good: true, seconds: 7 },
-    { id: "jackpot", name: "Jackpot", text: "Free gems", good: true, seconds: 2.5 },
-    { id: "turbo", name: "Turbo", text: "Everything speeds up", good: false, seconds: 5 },
-    { id: "mirror", name: "Mirror", text: "Left is right, right is left", good: false, seconds: 5 },
-    { id: "blackout", name: "Blackout", text: "The lights go out", good: false, seconds: 5 },
-    { id: "wobble", name: "Wobble", text: "The world sways", good: false, seconds: 6 },
-    { id: "blur", name: "Blur", text: "Where are your glasses?", good: false, seconds: 5 }
-  ];
+  // The Randomizer's effects and how each plays: fx.js.
+  var FX = window.SlopeFx;
+  var EFFECTS = FX ? FX.list : [];
   var FIRST_EFFECT = 5;           // seconds into the run
   var RUSH_SECONDS = 60;          // a Gem Rush run
   var GAP = [3, 6];               // seconds between effects
-  var JACKPOT_GEMS = 15;
+  var RECENT = 20;                // an effect doesn't come back within this many others
 
   function byId(list, id) {
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
@@ -93,29 +84,34 @@
 
   // --- Randomizer --------------------------------------------------------------
 
-  var fx = { on: null, until: 0, next: 0, clock: 0, last: null, ball: null, vp: null, previous: null };
+  var fx = { on: null, began: 0, until: 0, next: 0, clock: 0, last: null, ball: null, vp: null, recent: [] };
 
   function effectActive(id) { return !!(fx.on && fx.on.id === id); }
 
   function startEffect(e) {
     fx.on = e;
+    fx.began = fx.clock;
     fx.until = fx.clock + e.seconds;
-    if (e.id === "slowmo") game.setTimeScale(0.55);
-    if (e.id === "turbo") game.setTimeScale(1.35);
-    if (e.id === "mirror") mirror(true);
-    if (e.id === "jackpot") profile.addGems(JACKPOT_GEMS);
+    fx.recent.push(e.id);
+    if (fx.recent.length > RECENT) fx.recent.shift();
+    FX.start(e);
     showBanner(e);
-    applyLook();
+    FX.frame(e, 0, { ball: fx.ball, vp: fx.vp });
   }
 
   function endEffect() {
     var e = fx.on;
     if (!e) return;
     fx.on = null;
-    if (e.id === "slowmo" || e.id === "turbo") game.setTimeScale(1);
-    if (e.id === "mirror") mirror(false);
+    FX.end(e);
     hideBanner();
-    applyLook();
+  }
+
+  // The next effect: any that can play here, but none of the last few.
+  function pickEffect() {
+    var pool = EFFECTS.filter(function (e) { return FX.playable(e) && fx.recent.indexOf(e.id) < 0; });
+    if (!pool.length) pool = EFFECTS.filter(FX.playable);
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   function stopRandomizer() {
@@ -126,7 +122,7 @@
   // The effects run on the time the run has been going (paused screens and
   // slow frames don't count), measured on the wall clock.
   game.on("frame", function (f) {
-    if (current !== "randomizer" || !game.inRun()) return;
+    if (current !== "randomizer" || !game.inRun() || !FX) return;
     var now = game.realNow() / 1000;
     if (fx.last !== null) fx.clock += Math.min(0.25, now - fx.last);
     fx.last = now;
@@ -136,13 +132,8 @@
       endEffect();
       fx.next = fx.clock + GAP[0] + Math.random() * (GAP[1] - GAP[0]);
     }
-    if (!fx.on && fx.clock >= fx.next) {
-      var pool = EFFECTS.filter(function (e) { return e.id !== fx.previous; });
-      var e = pool[Math.floor(Math.random() * pool.length)];
-      fx.previous = e.id;
-      startEffect(e);
-    }
-    if (fx.on) { updateBanner(); updateLook(); }
+    if (!fx.on && fx.clock >= fx.next) startEffect(pickEffect());
+    if (fx.on) { updateBanner(); FX.frame(fx.on, fx.clock - fx.began, { ball: fx.ball, vp: fx.vp }); }
   });
 
   // --- Gem Rush -----------------------------------------------------------------
@@ -199,43 +190,6 @@
     }
   }
 
-  // Mirrored steering: the game hears the opposite key (steer.js).
-  function mirror(on) {
-    if (window.SlopeSteer) window.SlopeSteer.mirror(on);
-  }
-
-  // Screen effects: on the game's canvas (the track colour tint sits on its
-  // container, so they combine), and a dark veil with a hole around the ball.
-  var veil = null;
-  function canvas() { return document.getElementById("#canvas"); }
-  function applyLook() {
-    var c = canvas();
-    if (c) {
-      c.style.filter = effectActive("blur") ? "blur(3px)" : "";
-      if (!effectActive("wobble")) c.style.transform = "";
-    }
-    if (veil) veil.hidden = !effectActive("blackout");
-  }
-  function updateLook() {
-    var c = canvas();
-    if (c && effectActive("wobble")) {
-      var t = fx.clock;
-      c.style.transform = "rotate(" + (Math.sin(t * 2.1) * 7).toFixed(2) + "deg) scale(1.15)";
-    }
-    if (veil && effectActive("blackout") && c && fx.vp && fx.ball && fx.ball.world) {
-      var w = fx.ball.world, m = fx.vp;
-      var cx = m[0] * w[0] + m[4] * w[1] + m[8] * w[2] + m[12], cy = m[1] * w[0] + m[5] * w[1] + m[9] * w[2] + m[13];
-      var cw = m[3] * w[0] + m[7] * w[1] + m[11] * w[2] + m[15];
-      if (cw > 0) {
-        var r = c.getBoundingClientRect();
-        var x = r.left + (cx / cw * 0.5 + 0.5) * r.width, y = r.top + (0.5 - cy / cw * 0.5) * r.height;
-        veil.style.setProperty("--x", x.toFixed(0) + "px");
-        veil.style.setProperty("--y", (y - r.height * 0.12).toFixed(0) + "px");
-        veil.style.setProperty("--r", (r.height * 0.2).toFixed(0) + "px");
-      }
-    }
-  }
-
   // The banner under the HUD: the effect's name, what it does, time left.
   var banner = null;
   function showBanner(e) {
@@ -268,7 +222,7 @@
     setLegacy(current === "legacy");
     fx.clock = 0;
     fx.last = null;
-    fx.previous = null;
+    fx.recent = [];
     fx.next = FIRST_EFFECT;
   });
 
@@ -344,11 +298,6 @@
     banner.hidden = true;
     banner.innerHTML = '<p class="slope-effect-name"></p><p class="slope-effect-text"></p><div class="slope-effect-bar" aria-hidden="true"><span></span></div>';
     ui.root.appendChild(banner);
-
-    veil = document.createElement("div");
-    veil.className = "slope-veil";
-    veil.hidden = true;
-    ui.root.appendChild(veil);
 
     els = {
       screen: screen,
@@ -760,6 +709,14 @@
     active: function (id) {
       if (current === "rush") return !rush.over && game.inRun() && (id === "gemrain" || id === "magnet");
       return current === "randomizer" && effectActive(id);
+    },
+    // What the effect going on does to gems (gems.js): worth (times), density
+    // (times; 0 for none), reach (extra magnet) and luck; Gem Rush: three
+    // times the gems and a magnet. `none` when nothing changes it.
+    gemBoost: function (kind, none) {
+      if (current === "rush" && !rush.over && game.inRun()) return kind === "density" ? 3 : kind === "reach" ? 1.5 : none;
+      var g = current === "randomizer" && fx.on && fx.on.gems;
+      return g && g[kind] !== undefined ? g[kind] : none;
     },
     // Starts an effect now, in a Randomizer run (for tools and tests).
     trigger: function (id) {

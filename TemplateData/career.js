@@ -97,6 +97,10 @@
       var b = profile.ball ? profile.ball() : null, s = window.SlopeSkins ? window.SlopeSkins.byId(p.skin) : null;
       return b ? (s ? s.name + " " : "") + "Lv " + b.level + " (" + b.stage + ")" : "1";
     }],
+    ["Randomizer effects", function (p) {
+      var all = window.SlopeFx ? window.SlopeFx.list.length : 0, seen = (p.fxSeen || []).length;
+      return all ? fmt(Math.min(seen, all)) + " / " + fmt(all) + " seen" : fmt(seen) + " seen";
+    }],
     ["Neon Pinball", function (p) {
       var b = p.pinball;
       return b && b.games ? "Best " + abbr(b.best) + "  \u00b7  " + fmt(b.games) + (b.games === 1 ? " game" : " games") : "Not played yet";

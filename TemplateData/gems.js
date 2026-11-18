@@ -75,7 +75,7 @@
   // A new gem's rarity: the rarest unlocked one that comes up, else golden
   // (Lucky), else a plain gem.
   function roll() {
-    var luck = upgrade("luck");
+    var luck = upgrade("luck") + fxGem("luck", 0);
     var has = window.SlopeUpgrades && window.SlopeUpgrades.hasRarity;
     for (var r = RARITIES.length - 1; r >= 2; r--) {
       if (has && has(RARITIES[r].id) && Math.random() < RARITIES[r].chance * (1 + LUCK_BOOST * luck)) return r;
@@ -92,7 +92,7 @@
       (window.SlopeProfile && window.SlopeProfile.ballBoosts ? window.SlopeProfile.ballBoosts().gems : 1) *   // the ball's level
       (window.SlopeClicker ? window.SlopeClicker.boosts().gems : 1) *   // the Core Clicker
       (window.SlopePinball ? window.SlopePinball.boosts().gems : 1) *   // Neon Pinball
-      (effect("double") ? 2 : 1);
+      fxGem("worth", 1);   // a Randomizer effect (x2, x3, x5 gems...)
   }
 
   // Upgrade tree effects (upgrades.js), none without it.
@@ -105,6 +105,16 @@
   function effect(name) {
     var m = window.SlopeModes;
     return !!(m && m.active && m.active(name));
+  }
+  // What a Randomizer effect (or Gem Rush) does to gems: worth (times),
+  // density (times; 0: none placed while it lasts), reach (extra magnet) and luck.
+  function fxGem(kind, none) {
+    var m = window.SlopeModes;
+    if (m && m.gemBoost) return m.gemBoost(kind, none);
+    if (kind === "worth") return effect("double") ? 2 : 1;
+    if (kind === "density") return effect("gemrain") ? 3 : 1;
+    if (kind === "reach") return effect("magnet") ? 1.5 : 0;
+    return none;
   }
 
   // Slope directions in world space: up off the track, sideways, downhill.
@@ -163,10 +173,10 @@
       for (var i = 0; i < line; i++) {
         if (i && !trackRange(frame.pieces, s + i * 3.5)) break;
         if (adventure && !adventure.isClear(s + i * 3.5)) break; // never inside a level's obstacle
-        gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI, r: roll() });
+        if (fxGem("density", 1) > 0) gems.push({ s: s + i * 3.5, x: x, h: floorH + REST, turn: Math.random() * Math.PI, r: roll() });   // a Gem drought places none
       }
       // The More gems upgrade closes the gaps.
-      var denser = (1 + upgrade("spawn")) * (effect("gemrain") ? 3 : 1);
+      var denser = (1 + upgrade("spawn")) * Math.max(1, fxGem("density", 1));
       nextS = s + (GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN)) / denser + (line - 1) * 3.5;
     }
   }
@@ -197,7 +207,7 @@
   // Did the ball pass through the gem since the last frame? Checking the whole
   // path, not just where the ball is now, keeps fast balls and slow frames fair.
   function touches(g, from, to) {
-    var reach = 1 + upgrade("magnet") + (effect("magnet") ? 1.5 : 0) + ballReach();   // the Magnet upgrade (and the ball's level) reach further sideways
+    var reach = 1 + upgrade("magnet") + fxGem("reach", 0) + ballReach();   // the Magnet upgrade (and the ball's level) reach further sideways
     var lo = Math.min(from.s, to.s) - PICKUP.s, hi = Math.max(from.s, to.s) + PICKUP.s;
     if (g.s < lo || g.s > hi) return false;
     var span = to.s - from.s;
@@ -224,7 +234,7 @@
     if (running) {
       if (floorH !== null && grounded > 3) spawnAhead(frame);
       var settle = 1 - Math.exp(-dt * 6);
-      var magnet = upgrade("magnet") + (effect("magnet") ? 1.5 : 0);
+      var magnet = upgrade("magnet") + fxGem("reach", 0);
       var pull = magnet ? 1 - Math.exp(-dt * 5 * Math.min(1, magnet * 2)) : 0;
       gems.forEach(function (g) {
         g.h += (floorH + REST - g.h) * settle; // follow the floor if it changes level

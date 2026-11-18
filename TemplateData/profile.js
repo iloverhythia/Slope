@@ -99,7 +99,16 @@
       slopes: [], track: "track-classic", pillar: "pillar-classic", merge: cleanMerge(null),
       gemsTotal: 0, goldTotal: 0, spent: 0, longestRun: 0, modes: cleanModes(null),
       rares: cleanRares(null), platUnlocked: 1, platWins: 0, platTimes: cleanTimes(null),
-      prestige: 0, prestiges: 0, secretBest: 0, ballLevels: {}, clicker: cleanClicker(null), pinball: cleanPinball(null) };
+      prestige: 0, prestiges: 0, secretBest: 0, ballLevels: {}, clicker: cleanClicker(null), pinball: cleanPinball(null), fxSeen: [] };
+  }
+
+  // The Randomizer effects seen so far (fx.js ids), each once.
+  function cleanSeen(list) {
+    var out = [];
+    (Array.isArray(list) ? list : []).forEach(function (id) {
+      if (typeof id === "string" && /^[a-z0-9]{1,24}$/.test(id) && out.indexOf(id) < 0 && out.length < 500) out.push(id);
+    });
+    return out;
   }
 
   // Neon Pinball (pinball.js): tickets to spend, best score, games, all the
@@ -250,6 +259,7 @@
       else if (k === "merge") b.merge = cleanMerge(d.merge);
       else if (k === "clicker") b.clicker = cleanClicker(d.clicker);
       else if (k === "pinball") b.pinball = cleanPinball(d.pinball);
+      else if (k === "fxSeen") b.fxSeen = cleanSeen(d.fxSeen);
       else if (k === "modes") b.modes = cleanModes(d.modes);
       else if (k === "rares") b.rares = cleanRares(d.rares);
       else if (k === "platTimes") b.platTimes = cleanTimes(d.platTimes);
@@ -305,6 +315,7 @@
       merge: JSON.parse(JSON.stringify(data.merge)),
       clicker: JSON.parse(JSON.stringify(data.clicker)),
       pinball: JSON.parse(JSON.stringify(data.pinball)),
+      fxSeen: data.fxSeen.slice(),
       modes: JSON.parse(JSON.stringify(data.modes)),
       rares: Object.assign({}, data.rares),
       platTimes: Object.assign({}, data.platTimes),
@@ -593,6 +604,13 @@
   }
 
   // Pinball saves after a game or a purchase; notify: tell the page (its boosts changed).
+  // A Randomizer effect seen for the first time (fx.js): counted on the Career page.
+  function seeEffect(id) {
+    if (typeof id !== "string" || data.fxSeen.indexOf(id) >= 0) return;
+    data.fxSeen = cleanSeen(data.fxSeen.concat([id]));
+    save();
+  }
+
   function savePinball(s, notify) {
     data.pinball = cleanPinball(s);
     save();
@@ -751,6 +769,7 @@
       // The clicker that has made more energy over all time wins.
       clicker: a.clicker.allTime >= b.clicker.allTime ? a.clicker : b.clicker,
       pinball: a.pinball.total >= b.pinball.total ? a.pinball : b.pinball,
+      fxSeen: cleanSeen(a.fxSeen.concat(b.fxSeen)),
       merge: {
         best: Math.max(a.merge.best, b.merge.best),
         board: a.merge.board.some(Boolean) ? a.merge.board : b.merge.board,
@@ -888,6 +907,7 @@
     saveMerge: saveMerge,
     saveClicker: saveClicker,
     savePinball: savePinball,
+    seeEffect: seeEffect,
     recordModeRun: recordModeRun,
     recordPlatformer: recordPlatformer,
     prestigeGain: function () { return prestigeGain(data); },
